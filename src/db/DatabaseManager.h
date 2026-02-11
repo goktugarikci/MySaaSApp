@@ -71,6 +71,7 @@ public:
     bool loginUser(const std::string& email, const std::string& rawPassword);
     std::optional<User> getUser(const std::string& email);
     std::optional<User> getUserById(int id);
+    bool updateUserAvatar(int userId, const std::string& avatarUrl);
 
     // Arkadaşlık İşlemleri
     bool sendFriendRequest(int myId, int targetUserId);
