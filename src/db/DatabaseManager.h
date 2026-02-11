@@ -11,10 +11,18 @@ struct User {
     int id;
     std::string name;
     std::string email;
-    std::string password_hash; // Güvenlik için hash saklanmalı
-    bool is_system_admin;      // "God Mode" yetkisi
-    std::string status;        // Online, Offline
+    std::string password_hash; // Veritabanından çekmezsek boş string verelim
+    bool is_system_admin;
+    std::string status;
     std::string avatar_url;
+};
+
+// EKSİK OLAN STRUCT EKLENDİ:
+struct FriendRequest {
+    int requester_id;
+    std::string requester_name;
+    std::string requester_avatar;
+    std::string sent_at;
 };
 
 struct Server {
@@ -32,22 +40,13 @@ struct Channel {
     bool is_private;
 };
 
-struct Role {
-    int id;
-    int server_id;
-    std::string name;
-    std::string color;
-    int hierarchy;  // 100: Admin, 1: Üye
-    int permissions; // Bitmask (Örn: 8 = Ban yetkisi)
-};
-
 struct KanbanCard {
     int id;
     int list_id;
     std::string title;
     std::string description;
-    int priority; // 0: Düşük, 1: Orta, 2: Yüksek
-    int position; // Sıralama için
+    int priority;
+    int position;
 };
 
 // --- DATABASE MANAGER SINIFI ---
@@ -57,36 +56,32 @@ private:
     sqlite3* db;
     std::string db_path;
 
-    // Yardımcı: Basit sorgular için (Tablo oluşturma vb.)
     bool executeQuery(const std::string& sql);
 
 public:
     DatabaseManager(const std::string& path);
     ~DatabaseManager();
 
-    // --- BAĞLANTI VE KURULUM ---
     bool open();
     void close();
-    bool initTables(); // Tüm tablo şemasını (Friends dahil) kurar
+    bool initTables();
 
-    // --- GÜVENLİ KULLANICI İŞLEMLERİ (Argon2 & Prepared Stmt) ---
+    // Kullanıcı İşlemleri
     bool createUser(const std::string& name, const std::string& email, const std::string& rawPassword, bool isAdmin = false);
-    bool loginUser(const std::string& email, const std::string& rawPassword); // Giriş kontrolü
+    bool loginUser(const std::string& email, const std::string& rawPassword);
     std::optional<User> getUser(const std::string& email);
     std::optional<User> getUserById(int id);
 
-    // --- ARKADAŞLIK SİSTEMİ (YENİ) ---
+    // Arkadaşlık İşlemleri
     bool sendFriendRequest(int myId, int targetUserId);
     bool acceptFriendRequest(int requesterId, int myId);
-    bool rejectOrRemoveFriend(int otherUserId, int myId);
-    std::vector<FriendRequest> getPendingRequests(int myId); // Bana gelen istekler
-    std::vector<User> getFriendsList(int myId);              // Arkadaş listem
+    bool rejectOrRemoveFriend(int otherUserId, int myId); // EKSİK OLAN BU FONKSİYONDU
+    std::vector<FriendRequest> getPendingRequests(int myId);
+    std::vector<User> getFriendsList(int myId);
 
-    // --- SUNUCU & KANAL İŞLEMLERİ ---
+    // Sunucu & Diğerleri
     int createServer(const std::string& name, int ownerId);
     bool createChannel(int serverId, std::string name, int type);
-
-    // --- KANBAN / TRELLO İŞLEMLERİ ---
     bool createKanbanList(int boardChannelId, std::string title);
     bool createKanbanCard(int listId, std::string title, std::string desc, int priority);
     bool moveCard(int cardId, int newListId, int newPosition);
