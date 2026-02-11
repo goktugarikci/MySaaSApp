@@ -19,7 +19,7 @@ add_executable(MySaaSApp
     src/db/DatabaseManager.cpp 
     src/db/DatabaseManager.h
     src/utils/Security.cpp
-    src/utils/Security.h)
+    src/utils/Security.h "src/utils/FileManager.h" "src/utils/FileManager.cpp")
 
 # 3. Kütüphaneleri Bağla (Link)
 target_link_libraries(MySaaSApp PRIVATE
