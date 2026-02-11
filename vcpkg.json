@@ -1,0 +1,12 @@
+{
+  "name": "mysaasapp",
+  "version-string": "0.1.0",
+  "dependencies": [
+    "crow",
+    "sqlite3",
+    "fmt",
+    "nlohmann-json",
+    "libdatachannel",
+    "argon2"
+  ]
+}

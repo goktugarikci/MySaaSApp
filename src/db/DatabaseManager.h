@@ -2,283 +2,92 @@
 #include <string>
 #include <vector>
 #include <sqlite3.h>
+#include <iostream>
 #include <optional>
 
-#include <crow/middlewares/cors.h>
+// --- VERİ MODELLERİ (STRUCTS) ---
 
-#include "../models/User.h"
-#include "../models/Server.h"
-#include "../models/Message.h"
-#include "../models/Kanban.h"
-#include "../models/Payment.h"
-#include "../models/Requests.h"
-#include "../models/DTOs.h" // Sadece buradan çekilecek!
+struct User {
+    int id;
+    std::string name;
+    std::string email;
+    std::string password_hash; // Güvenlik için hash saklanmalı
+    bool is_system_admin;      // "God Mode" yetkisi
+    std::string status;        // Online, Offline
+    std::string avatar_url;
+};
+
+struct Server {
+    int id;
+    int owner_id;
+    std::string name;
+    std::string invite_code;
+};
+
+struct Channel {
+    int id;
+    int server_id;
+    std::string name;
+    int type; // 0: Text, 1: Voice, 2: Video, 3: Kanban Board
+    bool is_private;
+};
+
+struct Role {
+    int id;
+    int server_id;
+    std::string name;
+    std::string color;
+    int hierarchy;  // 100: Admin, 1: Üye
+    int permissions; // Bitmask (Örn: 8 = Ban yetkisi)
+};
+
+struct KanbanCard {
+    int id;
+    int list_id;
+    std::string title;
+    std::string description;
+    int priority; // 0: Düşük, 1: Orta, 2: Yüksek
+    int position; // Sıralama için
+};
+
+// --- DATABASE MANAGER SINIFI ---
 
 class DatabaseManager {
-public:
-    sqlite3* db; //Main DB
-    sqlite3* logDb;// Log Dosyası 
-    std::string db_path; //Main DB
-    std::mutex logMutex;// Log Dosyası 
-    std::mutex dbMutex;
-    std::mutex logDbMutex;
-    bool executeQuery(const std::string& sql); //Main DB
-    bool executeLogQuery(const std::string& query); // Log Dosyası Köprüsü
-    // Mesajlaşma Fonksiyonları
-    bool saveMessage(std::string senderId, std::string targetId, std::string chatType, std::string content);
+private:
+    sqlite3* db;
+    std::string db_path;
+
+    // Yardımcı: Basit sorgular için (Tablo oluşturma vb.)
+    bool executeQuery(const std::string& sql);
+
 public:
     DatabaseManager(const std::string& path);
     ~DatabaseManager();
 
-    sqlite3* getDb();
-
+    // --- BAĞLANTI VE KURULUM ---
     bool open();
     void close();
-    bool initTables();
+    bool initTables(); // Tüm tablo şemasını (Friends dahil) kurar
 
-    bool createGoogleUser(const std::string& name, const std::string& email, const std::string& googleId, const std::string& avatarUrl);
-    std::optional<User> getUserByGoogleId(const std::string& googleId);
-    bool createUser(std::string name, std::string email, std::string password, bool is_system_admin = false, std::string username = "", std::string phone_number = "");
+    // --- GÜVENLİ KULLANICI İŞLEMLERİ (Argon2 & Prepared Stmt) ---
+    bool createUser(const std::string& name, const std::string& email, const std::string& rawPassword, bool isAdmin = false);
+    bool loginUser(const std::string& email, const std::string& rawPassword); // Giriş kontrolü
     std::optional<User> getUser(const std::string& email);
-    std::optional<User> getUserById(std::string id);
-    bool updateUserAvatar(std::string userId, const std::string& avatarUrl);
-    bool updateUserDetails(std::string userId, const std::string& name, const std::string& status);
-    bool deleteUser(std::string userId);
-    bool isSystemAdmin(std::string userId);
-    bool updateUserStatus(const std::string& userId, const std::string& newStatus);
-    bool updateLastSeen(const std::string& userId);
-    void markInactiveUsersOffline(int timeoutSeconds);
-    std::vector<User> searchUsers(const std::string& searchQuery);
-    std::string authenticateUser(const std::string& email, const std::string& password);
-    bool loginUser(const std::string& email, const std::string& rawPassword);
+    std::optional<User> getUserById(int id);
 
-    std::string createServer(const std::string& name, std::string ownerId);
-    bool deleteServer(std::string serverId);
-    std::vector<Server> getUserServers(std::string userId);
-    std::optional<Server> getServerDetails(std::string serverId);
-    bool addMemberToServer(std::string serverId, std::string userId);
-    bool removeMemberFromServer(std::string serverId, std::string userId);
-    bool joinServerByCode(std::string userId, const std::string& inviteCode);
-    bool kickMember(std::string serverId, std::string userId);
-    std::string getServerSettings(std::string serverId);
-    bool updateServerSettings(std::string serverId, const std::string& settingsJson);
-    bool hasServerPermission(std::string serverId, std::string userId, std::string permissionType);
-    bool isUserInServer(std::string serverId, std::string userId);
-    bool logServerAction(const std::string& serverId, const std::string& action, const std::string& details);
-    std::vector<ServerLog> getServerLogs(const std::string& serverId);
-    std::string getChannelServerId(const std::string& channelId);
-    std::string getChannelName(const std::string& channelId);
-    std::vector<ServerMemberDetail> getServerMembersDetails(const std::string& serverId);
-    std::vector<Server> getAllServers();
-    bool sendServerInvite(std::string serverId, std::string inviterId, std::string inviteeId);
-    bool resolveServerInvite(std::string serverId, std::string inviteeId, bool accept);
-    std::vector<ServerInviteDTO> getPendingServerInvites(std::string userId);
+    // --- ARKADAŞLIK SİSTEMİ (YENİ) ---
+    bool sendFriendRequest(int myId, int targetUserId);
+    bool acceptFriendRequest(int requesterId, int myId);
+    bool rejectOrRemoveFriend(int otherUserId, int myId);
+    std::vector<FriendRequest> getPendingRequests(int myId); // Bana gelen istekler
+    std::vector<User> getFriendsList(int myId);              // Arkadaş listem
 
-    bool createRole(std::string serverId, std::string roleName, int hierarchy, int permissions);
-    std::vector<Role> getServerRoles(std::string serverId);
-    std::string getServerIdByRoleId(std::string roleId);
-    bool updateRole(std::string roleId, std::string name, int hierarchy, int permissions);
-    bool deleteRole(std::string roleId);
-    bool assignRoleToMember(std::string serverId, std::string userId, std::string roleId);
-    bool assignRole(std::string serverId, std::string userId, std::string roleId);
+    // --- SUNUCU & KANAL İŞLEMLERİ ---
+    int createServer(const std::string& name, int ownerId);
+    bool createChannel(int serverId, std::string name, int type);
 
-    bool createChannel(std::string serverId, std::string name, int type);
-    bool createChannel(std::string serverId, std::string name, int type, bool isPrivate);
-    bool updateChannel(std::string channelId, const std::string& name);
-    bool deleteChannel(std::string channelId);
-    std::vector<Channel> getServerChannels(std::string serverId);
-    std::vector<Channel> getServerChannels(std::string serverId, std::string userId);
-    int getServerKanbanCount(std::string serverId);
-    bool hasChannelAccess(std::string channelId, std::string userId);
-    bool addMemberToChannel(std::string channelId, std::string userId);
-    bool removeMemberFromChannel(std::string channelId, std::string userId);
-
-    bool sendMessage(std::string channelId, std::string senderId, const std::string& content, const std::string& attachmentUrl = "");
-    bool updateMessage(const std::string& messageId, const std::string& newContent);
-    bool deleteMessage(std::string messageId);
-    std::vector<Message> getChannelMessages(std::string channelId, int limit = 50);
-    std::string getOrCreateDMChannel(std::string user1Id, std::string user2Id);
-    bool addMessageReaction(const std::string& messageId, const std::string& userId, const std::string& reaction);
-    bool removeMessageReaction(const std::string& messageId, const std::string& userId, const std::string& reaction);
-    bool addThreadReply(const std::string& messageId, const std::string& userId, const std::string& content);
-    std::vector<Message> getThreadReplies(const std::string& messageId);
-
-    std::vector<KanbanList> getKanbanBoard(std::string channelId);
-    bool createKanbanList(std::string boardChannelId, std::string title);
-    bool updateKanbanList(std::string listId, const std::string& title, int position);
-    bool deleteKanbanList(std::string listId);
-    bool createKanbanCard(std::string listId, std::string title, std::string desc, int priority);
-    bool createKanbanCard(std::string listId, std::string title, std::string desc, int priority, std::string assigneeId, std::string attachmentUrl, std::string dueDate);
-    bool updateKanbanCard(std::string cardId, std::string title, std::string description, int priority);
-    bool deleteKanbanCard(std::string cardId);
-    bool moveCard(std::string cardId, std::string newListId, int newPosition);
-    std::string getServerIdByCardId(std::string cardId);
-    bool assignUserToCard(std::string cardId, std::string assigneeId);
-    bool updateCardCompletion(std::string cardId, bool isCompleted);
-    std::vector<CardComment> getCardComments(std::string cardId);
-    bool addCardComment(std::string cardId, std::string userId, std::string content);
-    bool deleteCardComment(std::string commentId, std::string userId);
-    std::vector<CardTag> getCardTags(std::string cardId);
-    bool addCardTag(std::string cardId, std::string tagName, std::string color);
-    bool removeCardTag(std::string tagId);
-
-    bool sendFriendRequest(std::string myId, std::string targetUserId);
-    bool acceptFriendRequest(std::string requesterId, std::string myId);
-    bool rejectOrRemoveFriend(std::string otherUserId, std::string myId);
-    std::vector<FriendRequest> getPendingRequests(std::string myId);
-    std::vector<User> getFriendsList(std::string myId);
-    std::vector<User> getBlockedUsers(std::string userId);
-    bool blockUser(std::string userId, std::string targetId);
-    bool unblockUser(std::string userId, std::string targetId);
-
-    bool createPaymentRecord(std::string userId, const std::string& providerId, float amount, const std::string& currency);
-    bool updatePaymentStatus(const std::string& providerId, const std::string& status);
-    std::vector<PaymentTransaction> getUserPayments(std::string userId);
-    bool createReport(std::string reporterId, std::string contentId, const std::string& type, const std::string& reason);
-    std::vector<UserReport> getOpenReports();
-
-    // --- EKSİK CRUD İŞLEMLERİ (AŞAMA 1) ---
-    bool updateServerRole(const std::string& roleId, const std::string& name, const std::string& color, int permissions);
-    bool deleteServerRole(const std::string& roleId);
-    bool removeRoleFromUser(const std::string& serverId, const std::string& userId, const std::string& roleId);
-    bool resolveReport(const std::string& reportId);
-
-    SystemStats getSystemStats();
-    std::vector<ServerLog> getSystemLogs(int limit = 100);
-    std::vector<Message> getArchivedMessages(int limit = 100);
-
-    int getUserServerCount(std::string userId);
-    bool updateUserSubscription(std::string userId, int level, int durationDays);
-    void processKanbanNotifications();
-    bool createNotification(std::string userId, std::string type, std::string content, int priority = 0); 
-    std::vector<crow::json::wvalue> getUserNotifications(std::string userId);
-    bool markNotificationAsRead(int notifId);
-    // ==========================================================
-    // YENİ EKLENENLER: ŞİFRE VE DAVET SİSTEMİ FONKSİYONLARI
-    // ==========================================================
-    bool createPasswordResetToken(const std::string& email, const std::string& token);
-    bool resetPasswordWithToken(const std::string& token, const std::string& newPassword);
-    bool updateChannelName(const std::string& channelId, const std::string& newName);
-    bool createServerInvite(const std::string& serverId, const std::string& inviterId, const std::string& code);
-    bool joinServerByInvite(const std::string& userId, const std::string& inviteCode);
-    std::vector<BannedUserRecord> getBannedUsers();
-
-    // --- YENİ EKLENEN SİSTEM YETENEKLERİ ---
-    bool deleteMessage(const std::string& msgId, const std::string& userId);
-    bool removeReaction(const std::string& msgId, const std::string& userId);
-    bool respondFriendRequest(const std::string& requesterId, const std::string& targetId, const std::string& status);
-    bool removeFriend(const std::string& userId, const std::string& friendId);
-    bool leaveServer(const std::string& serverId, const std::string& userId);
-    bool deleteServer(const std::string& serverId, const std::string& ownerId);
-    bool kickMember(const std::string& serverId, const std::string& ownerId, const std::string& targetId);
-    bool updateServerName(const std::string& serverId, const std::string& ownerId, const std::string& newName);
-
-
-    // ==========================================================
-    // V2.0 YENİ ÖZELLİKLER (ARAMA, ROL, KANBAN+, AYARLAR)
-    // ==========================================================
-
-    // 1. MESAJ ARAMA & PINLEME
-    std::vector<Message> searchMessages(const std::string& channelId, const std::string& query);
-    bool toggleMessagePin(const std::string& messageId, bool isPinned);
-    std::vector<Message> getPinnedMessages(const std::string& channelId);
-
-    // 2. ROL YÖNETİMİ
-    std::string createServerRole(const std::string& serverId, const std::string& name, const std::string& color, int permissions);
-    bool assignRoleToUser(const std::string& serverId, const std::string& userId, const std::string& roleId);
-
-    // 3. KANBAN GELİŞTİRMELERİ (DEADLINE & ETİKET)
-    bool setCardDeadline(const std::string& cardId, const std::string& date);
-    bool addCardLabel(const std::string& cardId, const std::string& text, const std::string& color);
-
-    // 4. KULLANICI AYARLARI
-    bool updateUserSettings(const std::string& userId, const std::string& theme, bool emailNotifs);
-
-    // ==========================================================
-    // AŞAMA 2: GELİŞMİŞ KULLANICI DENEYİMİ (DISCORD UX)
-    // ==========================================================
-
-    // Okundu Bilgisi
-    bool setChannelReadCursor(const std::string& userId, const std::string& channelId, const std::string& messageId);
-
-    // Kişisel Notlar
-    bool addUserNote(const std::string& ownerId, const std::string& targetUserId, const std::string& note);
-    std::string getUserNote(const std::string& ownerId, const std::string& targetUserId);
-
-    // Kaydedilen Mesajlar (Favoriler)
-    bool saveMessage(const std::string& userId, const std::string& messageId);
-    bool removeSavedMessage(const std::string& userId, const std::string& messageId);
-    std::vector<Message> getSavedMessages(const std::string& userId);
-
-    // ==========================================================
-    // AŞAMA 3: KATEGORİLER, KANAL SIRALAMASI VE GÜVENLİK
-    // ==========================================================
-
-    struct ServerCategory { std::string id, server_id, name; int position = 0; };
-    std::string createServerCategory(const std::string& serverId, const std::string& name, int position);
-    std::vector<ServerCategory> getServerCategories(const std::string& serverId);
-
-    bool updateChannelPosition(const std::string& channelId, int newPosition);
-    bool timeoutUser(const std::string& serverId, const std::string& userId, int durationMinutes);
-
-    // 2FA (İki Aşamalı Doğrulama) Altyapısı
-    bool enable2FA(const std::string& userId, const std::string& secret);
-    // ==========================================================
-    // AŞAMA 4: GELİŞMİŞ KANBAN (TRELLO+) - ALT GÖREVLER VE GEÇMİŞ
-    // ==========================================================
-
-    struct ChecklistItem { std::string id, card_id, content; bool is_completed = false; };
-    struct CardActivity { std::string id, card_id, user_id, user_name, action, timestamp; };
-
-    std::string addChecklistItem(const std::string& cardId, const std::string& content);
-    bool toggleChecklistItem(const std::string& itemId, bool isCompleted);
-    std::vector<ChecklistItem> getCardChecklist(const std::string& cardId);
-
-    bool logCardActivity(const std::string& cardId, const std::string& userId, const std::string& action);
-    std::vector<CardActivity> getCardActivity(const std::string& cardId);
-
-    // ==========================================================
-    // KULLANICI YÖNETİMİ EKSTRALARI (2FA İptali ve Abonelik İptali)
-    // ==========================================================
-    bool disable2FA(const std::string& userId);
-    bool cancelSubscription(const std::string& userId);
-
-    // ==========================================================
-    // SESLİ KANAL VE YAYIN DURUMU (VOICE & VIDEO PRESENCE)
-    // ==========================================================
-    bool clearChatForUser(std::string userId, std::string channelId);
-
-    struct VoiceMember { std::string user_id, user_name; bool is_muted, is_camera_on, is_screen_sharing = false; };
-
-    bool joinVoiceChannel(const std::string& channelId, const std::string& userId);
-    bool leaveVoiceChannel(const std::string& channelId, const std::string& userId);
-    bool updateVoiceStatus(const std::string& channelId, const std::string& userId, bool isMuted, bool isCameraOn, bool isScreenSharing);
-    std::vector<VoiceMember> getVoiceChannelMembers(const std::string& channelId);
-
-    void checkAndRevertExpiredSubscriptions();
-
-    std::vector<User> getAllUsers();
-    bool banUser(std::string userId, const std::string& reason = "Sistem Yasaklamasi");
-    bool unbanUser(std::string userId);
-    bool isSubscriptionActive(std::string userId);
-
-    // ==========================================================
-    // OPTİMİZASYON: WEBRTC BAĞLANTI VE KALİTE (QoS) METRİKLERİ
-    // ==========================================================
-
-    // Ağ kalitesini loglama
-    bool logCallQuality(const std::string& userId, const std::string& channelId, int latency, float packetLoss, const std::string& resolution);
-    // ==========================================================
-       // YENİ EKLENECEK: SISTEM LOGLARI (AUDIT TRAIL) YAPISI
-       // ==========================================================
-    struct AuditLogRecord { // İSİM DEĞİŞTİ
-        std::string id, user_id, action_type, target_id, details, created_at;
-    };
-
-    bool logAction(const std::string& userId, const std::string& actionType, const std::string& targetId, const std::string& details);
-
-    // İSİM DEĞİŞTİ (Eski getSystemLogs ile çakışmaması için):
-    std::vector<AuditLogRecord> getAuditLogs(int limit = 200);
-
-
+    // --- KANBAN / TRELLO İŞLEMLERİ ---
+    bool createKanbanList(int boardChannelId, std::string title);
+    bool createKanbanCard(int listId, std::string title, std::string desc, int priority);
+    bool moveCard(int cardId, int newListId, int newPosition);
 };
