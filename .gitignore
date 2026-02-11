@@ -1,0 +1,37 @@
+# Derleme (Build) Dosyaları
+*.o
+*.obj
+*.exe
+*.out
+*.app
+*.so
+*.a
+*.lib
+*.dll
+
+# Build Dizinleri
+build/
+bin/
+obj/
+x64/
+Debug/
+Release/
+
+# Visual Studio Dosyaları
+.vs/
+*.user
+*.suo
+*.sln.docstates
+
+# CLion / JetBrains Dosyaları
+.idea/
+cmake-build-*/
+
+# VS Code Dosyaları
+.vscode/
+ipch/
+vcpkg/
+vcpkg_installed/
+# Diğer
+*.log
+.DS_Store (Mac için)
