@@ -1,6 +1,9 @@
 #include "DatabaseManager.h"
-#include "../utils/Security.h" // Argon2 hashing için
+#include "../utils/Security.h"
 #include <iostream>
+
+// Yardımcı Makro: SQLite'dan gelen TEXT verisi NULL ise patlamasın diye boş string'e çevirir.
+#define SAFE_TEXT(col) (reinterpret_cast<const char*>(sqlite3_column_text(stmt, col)) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, col)) : "")
 
 DatabaseManager::DatabaseManager(const std::string& path) : db_path(path), db(nullptr) {}
 
@@ -14,7 +17,6 @@ bool DatabaseManager::open() {
         std::cerr << "DB Hatasi: " << sqlite3_errmsg(db) << std::endl;
         return false;
     }
-    // Foreign Key desteğini aç
     executeQuery("PRAGMA foreign_keys = ON;");
     return true;
 }
@@ -37,7 +39,6 @@ bool DatabaseManager::executeQuery(const std::string& sql) {
     return true;
 }
 
-// --- TABLO OLUŞTURMA (SCHEMA) ---
 bool DatabaseManager::initTables() {
     std::string sql =
         "CREATE TABLE IF NOT EXISTS Users ("
@@ -61,20 +62,18 @@ bool DatabaseManager::initTables() {
         "ID INTEGER PRIMARY KEY AUTOINCREMENT, "
         "ServerID INTEGER, "
         "Name TEXT NOT NULL, "
-        "Type INTEGER NOT NULL, " // 0:Text, 1:Voice, 2:Video, 3:Kanban
+        "Type INTEGER NOT NULL, "
         "FOREIGN KEY(ServerID) REFERENCES Servers(ID) ON DELETE CASCADE);"
 
-        // --- ARKADAŞLIK TABLOSU ---
         "CREATE TABLE IF NOT EXISTS Friends ("
         "RequesterID INTEGER, "
         "TargetID INTEGER, "
-        "Status INTEGER DEFAULT 0, " // 0:Bekliyor, 1:Arkadaş
+        "Status INTEGER DEFAULT 0, "
         "CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP, "
         "PRIMARY KEY (RequesterID, TargetID), "
         "FOREIGN KEY(RequesterID) REFERENCES Users(ID), "
         "FOREIGN KEY(TargetID) REFERENCES Users(ID));"
 
-        // --- KANBAN SİSTEMİ ---
         "CREATE TABLE IF NOT EXISTS KanbanLists ("
         "ID INTEGER PRIMARY KEY AUTOINCREMENT, "
         "ChannelID INTEGER, "
@@ -94,14 +93,12 @@ bool DatabaseManager::initTables() {
     return executeQuery(sql);
 }
 
-// --- GÜVENLİ KULLANICI İŞLEMLERİ ---
+// --- KULLANICI İŞLEMLERİ ---
 
 bool DatabaseManager::createUser(const std::string& name, const std::string& email, const std::string& rawPassword, bool isAdmin) {
-    // 1. Şifreyi Argon2 ile Hashle
     std::string passwordHash = Security::hashPassword(rawPassword);
     if (passwordHash.empty()) return false;
 
-    // 2. Prepared Statement ile Kaydet
     const char* sql = "INSERT INTO Users (Name, Email, PasswordHash, IsSystemAdmin) VALUES (?, ?, ?, ?);";
     sqlite3_stmt* stmt;
 
@@ -127,8 +124,7 @@ bool DatabaseManager::loginUser(const std::string& email, const std::string& raw
     bool loginSuccess = false;
     if (sqlite3_step(stmt) == SQLITE_ROW) {
         const unsigned char* dbHash = sqlite3_column_text(stmt, 0);
-        // Argon2 Doğrulaması
-        if (Security::verifyPassword(rawPassword, reinterpret_cast<const char*>(dbHash))) {
+        if (dbHash && Security::verifyPassword(rawPassword, reinterpret_cast<const char*>(dbHash))) {
             loginSuccess = true;
         }
     }
@@ -137,6 +133,7 @@ bool DatabaseManager::loginUser(const std::string& email, const std::string& raw
 }
 
 std::optional<User> DatabaseManager::getUser(const std::string& email) {
+    // SQL sırası: ID(0), Name(1), Email(2), Status(3), IsSystemAdmin(4)
     const char* sql = "SELECT ID, Name, Email, Status, IsSystemAdmin FROM Users WHERE Email = ?;";
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return std::nullopt;
@@ -145,41 +142,44 @@ std::optional<User> DatabaseManager::getUser(const std::string& email) {
 
     std::optional<User> user = std::nullopt;
     if (sqlite3_step(stmt) == SQLITE_ROW) {
+        // DİKKAT: Struct sırasına göre dolduruyoruz:
+        // { id, name, email, password_hash, is_system_admin, status, avatar_url }
         user = User{
             sqlite3_column_int(stmt, 0),
-            reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)),
-            reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)),
-            reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)),
-            "", // Avatar URL şimdilik boş
-            sqlite3_column_int(stmt, 4) != 0
+            SAFE_TEXT(1),
+            SAFE_TEXT(2),
+            "", // Password hash'i bu sorguda çekmiyoruz, güvenli olsun
+            sqlite3_column_int(stmt, 4) != 0,
+            SAFE_TEXT(3),
+            ""  // Avatar URL bu sorguda yok
         };
     }
     sqlite3_finalize(stmt);
     return user;
 }
 
-// --- ARKADAŞLIK SİSTEMİ FONKSİYONLARI ---
+std::optional<User> DatabaseManager::getUserById(int id) {
+    return std::nullopt; // Şimdilik boş, gerekirse eklersin
+}
+
+// --- ARKADAŞLIK SİSTEMİ ---
 
 bool DatabaseManager::sendFriendRequest(int myId, int targetUserId) {
-    // Kendine istek atamazsın
     if (myId == targetUserId) return false;
-
-    // Status 0: Bekliyor
     std::string sql = "INSERT INTO Friends (RequesterID, TargetID, Status) VALUES (" +
         std::to_string(myId) + ", " + std::to_string(targetUserId) + ", 0);";
     return executeQuery(sql);
 }
 
 bool DatabaseManager::acceptFriendRequest(int requesterId, int myId) {
-    // Sadece hedef kişi (ben) kabul edebilirim
     std::string sql = "UPDATE Friends SET Status = 1 WHERE RequesterID = " +
         std::to_string(requesterId) + " AND TargetID = " + std::to_string(myId) + ";";
     return executeQuery(sql);
 }
 
-// Bekleyen İstekleri Getir (Bana gelenler)
 std::vector<FriendRequest> DatabaseManager::getPendingRequests(int myId) {
     std::vector<FriendRequest> requests;
+    // SQL: ID(0), Name(1), CreatedAt(2)
     std::string sql = "SELECT U.ID, U.Name, F.CreatedAt FROM Users U "
         "JOIN Friends F ON U.ID = F.RequesterID "
         "WHERE F.TargetID = " + std::to_string(myId) + " AND F.Status = 0;";
@@ -187,11 +187,12 @@ std::vector<FriendRequest> DatabaseManager::getPendingRequests(int myId) {
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
         while (sqlite3_step(stmt) == SQLITE_ROW) {
+            // Struct Sırası: { requester_id, requester_name, requester_avatar, sent_at }
             requests.push_back({
                 sqlite3_column_int(stmt, 0),
-                reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)),
-                "", // Avatar
-                reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2))
+                SAFE_TEXT(1),
+                "", // Avatar henüz yok
+                SAFE_TEXT(2)
                 });
         }
     }
@@ -199,11 +200,9 @@ std::vector<FriendRequest> DatabaseManager::getPendingRequests(int myId) {
     return requests;
 }
 
-// Arkadaş Listesini Getir (Karışık Sorgu)
 std::vector<User> DatabaseManager::getFriendsList(int myId) {
     std::vector<User> friends;
-    // Hem benim eklediklerim (Requester=Ben) hem beni ekleyenler (Target=Ben)
-    // VE Durumu 1 olanlar.
+    // SQL: ID(0), Name(1), Email(2), Status(3)
     std::string sql = "SELECT U.ID, U.Name, U.Email, U.Status FROM Users U "
         "JOIN Friends F ON (U.ID = F.RequesterID OR U.ID = F.TargetID) "
         "WHERE (F.RequesterID = " + std::to_string(myId) + " OR F.TargetID = " + std::to_string(myId) + ") "
@@ -212,13 +211,15 @@ std::vector<User> DatabaseManager::getFriendsList(int myId) {
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
         while (sqlite3_step(stmt) == SQLITE_ROW) {
+            // Struct Sırası: { id, name, email, password_hash, is_system_admin, status, avatar_url }
             friends.push_back({
                 sqlite3_column_int(stmt, 0),
-                reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)),
-                reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)),
-                reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)),
-                "",
-                false
+                SAFE_TEXT(1),
+                SAFE_TEXT(2),
+                "",    // Password yok
+                false, // Admin bilgisi yok
+                SAFE_TEXT(3),
+                ""     // Avatar yok
                 });
         }
     }
@@ -226,7 +227,15 @@ std::vector<User> DatabaseManager::getFriendsList(int myId) {
     return friends;
 }
 
-// --- DİĞER FONKSİYONLAR (BASİT İMPLEMENTASYONLAR) ---
+// BU FONKSİYON .H DOSYASINDA VARDI AMA BURADA YOKTU, EKLEDİM:
+bool DatabaseManager::rejectOrRemoveFriend(int otherUserId, int myId) {
+    std::string sql = "DELETE FROM Friends WHERE (RequesterID = " + std::to_string(otherUserId) +
+        " AND TargetID = " + std::to_string(myId) + ") OR (RequesterID = " +
+        std::to_string(myId) + " AND TargetID = " + std::to_string(otherUserId) + ");";
+    return executeQuery(sql);
+}
+
+// --- DİĞERLERİ ---
 
 int DatabaseManager::createServer(const std::string& name, int ownerId) {
     std::string sql = "INSERT INTO Servers (Name, OwnerID, InviteCode) VALUES ('" + name + "', " + std::to_string(ownerId) + ", 'INV-" + name + "');";
@@ -239,7 +248,6 @@ bool DatabaseManager::createChannel(int serverId, std::string name, int type) {
     return executeQuery(sql);
 }
 
-// Kanban (Trello) İşlemleri
 bool DatabaseManager::createKanbanList(int boardChannelId, std::string title) {
     std::string sql = "INSERT INTO KanbanLists (ChannelID, Title, Position) VALUES (" + std::to_string(boardChannelId) + ", '" + title + "', 0);";
     return executeQuery(sql);
