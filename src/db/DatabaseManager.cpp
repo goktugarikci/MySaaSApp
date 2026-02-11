@@ -380,3 +380,90 @@ bool DatabaseManager::moveCard(int cardId, int newListId, int newPosition) {
     std::string sql = "UPDATE KanbanCards SET ListID=" + std::to_string(newListId) + ", Position=" + std::to_string(newPosition) + " WHERE ID=" + std::to_string(cardId) + ";";
     return executeQuery(sql);
 }
+
+std::vector<Server> DatabaseManager::getUserServers(int userId) {
+    std::vector<Server> servers;
+    // Kullanıcının üye olduğu sunucuları getir
+    std::string sql = "SELECT S.ID, S.Name, S.OwnerID, S.InviteCode FROM Servers S "
+        "JOIN ServerMembers SM ON S.ID = SM.ServerID "
+        "WHERE SM.UserID = " + std::to_string(userId) + ";";
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            servers.push_back({
+                sqlite3_column_int(stmt, 0),
+                sqlite3_column_int(stmt, 2),
+                SAFE_TEXT(1),
+                SAFE_TEXT(3),
+                "" // IconURL şimdilik boş
+                });
+        }
+    }
+    sqlite3_finalize(stmt);
+    return servers;
+}
+
+std::vector<Channel> DatabaseManager::getServerChannels(int serverId) {
+    std::vector<Channel> channels;
+    std::string sql = "SELECT ID, Name, Type FROM Channels WHERE ServerID = " + std::to_string(serverId) + ";";
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            channels.push_back({
+                sqlite3_column_int(stmt, 0),
+                serverId,
+                SAFE_TEXT(1),
+                sqlite3_column_int(stmt, 2),
+                false
+                });
+        }
+    }
+    sqlite3_finalize(stmt);
+    return channels;
+}
+
+std::vector<KanbanCard> DatabaseManager::getKanbanCards(int listId) {
+    std::vector<KanbanCard> cards;
+    std::string sql = "SELECT ID, Title, Description, Priority, Position FROM KanbanCards WHERE ListID = " + std::to_string(listId) + " ORDER BY Position ASC;";
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            cards.push_back({
+                sqlite3_column_int(stmt, 0),
+                listId,
+                SAFE_TEXT(1),
+                SAFE_TEXT(2),
+                sqlite3_column_int(stmt, 3),
+                sqlite3_column_int(stmt, 4)
+                });
+        }
+    }
+    sqlite3_finalize(stmt);
+    return cards;
+}
+
+std::vector<DatabaseManager::KanbanListWithCards> DatabaseManager::getKanbanBoard(int channelId) {
+    std::vector<KanbanListWithCards> board;
+    // 1. Listeleri Çek
+    std::string sql = "SELECT ID, Title, Position FROM KanbanLists WHERE ChannelID = " + std::to_string(channelId) + " ORDER BY Position ASC;";
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            int listId = sqlite3_column_int(stmt, 0);
+            std::string title = SAFE_TEXT(1);
+            int pos = sqlite3_column_int(stmt, 2);
+
+            // 2. Her listenin kartlarını çek (Recursive mantık yerine döngü içinde çağırıyoruz)
+            // Not: Performans için JOIN kullanılabilir ama şimdilik anlaşılır olması için böyle yapıyoruz.
+            std::vector<KanbanCard> cards = getKanbanCards(listId);
+
+            board.push_back({ listId, title, pos, cards });
+        }
+    }
+    sqlite3_finalize(stmt);
+    return board;
+}

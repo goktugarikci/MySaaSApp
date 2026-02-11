@@ -117,4 +117,18 @@ public:
     bool createKanbanList(int boardChannelId, std::string title);
     bool createKanbanCard(int listId, std::string title, std::string description, int priority);
     bool moveCard(int cardId, int newListId, int newPosition);
+
+    // --- VERİ ÇEKME (GET) FONKSİYONLARI ---
+    std::vector<Server> getUserServers(int userId);
+    std::vector<Channel> getServerChannels(int serverId);
+
+    // Kanban Verileri
+    std::vector<KanbanCard> getKanbanCards(int listId);
+    struct KanbanListWithCards {
+        int id;
+        std::string title;
+        int position;
+        std::vector<KanbanCard> cards;
+    };
+    std::vector<KanbanListWithCards> getKanbanBoard(int channelId);
 };
