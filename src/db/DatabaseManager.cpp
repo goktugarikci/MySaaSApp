@@ -2,7 +2,7 @@
 #include "../utils/Security.h"
 #include <iostream>
 
-// Yardımcı Makro: SQLite'dan gelen NULL metinleri güvenli string'e çevirir
+// Yardımcı Makro
 #define SAFE_TEXT(col) (reinterpret_cast<const char*>(sqlite3_column_text(stmt, col)) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, col)) : "")
 
 DatabaseManager::DatabaseManager(const std::string& path) : db_path(path), db(nullptr) {}
@@ -17,7 +17,6 @@ bool DatabaseManager::open() {
         std::cerr << "DB Hatasi: " << sqlite3_errmsg(db) << std::endl;
         return false;
     }
-    // Foreign Key desteğini aç
     executeQuery("PRAGMA foreign_keys = ON;");
     return true;
 }
@@ -58,26 +57,56 @@ bool DatabaseManager::initTables() {
         "OwnerID INTEGER, "
         "Name TEXT NOT NULL, "
         "InviteCode TEXT UNIQUE, "
+        "IconURL TEXT, "
         "FOREIGN KEY(OwnerID) REFERENCES Users(ID));"
+
+        // EKLENDİ: Roller Tablosu
+        "CREATE TABLE IF NOT EXISTS Roles ("
+        "ID INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "ServerID INTEGER, "
+        "RoleName TEXT NOT NULL, "
+        "Color TEXT DEFAULT '#FFFFFF', "
+        "Hierarchy INTEGER DEFAULT 0, "
+        "Permissions INTEGER DEFAULT 0, "
+        "FOREIGN KEY(ServerID) REFERENCES Servers(ID) ON DELETE CASCADE);"
+
+        // EKLENDİ: Sunucu Üyeleri
+        "CREATE TABLE IF NOT EXISTS ServerMembers ("
+        "ServerID INTEGER, "
+        "UserID INTEGER, "
+        "Nickname TEXT, "
+        "JoinedAt DATETIME DEFAULT CURRENT_TIMESTAMP, "
+        "PRIMARY KEY (ServerID, UserID), "
+        "FOREIGN KEY(ServerID) REFERENCES Servers(ID) ON DELETE CASCADE, "
+        "FOREIGN KEY(UserID) REFERENCES Users(ID) ON DELETE CASCADE);"
 
         "CREATE TABLE IF NOT EXISTS Channels ("
         "ID INTEGER PRIMARY KEY AUTOINCREMENT, "
         "ServerID INTEGER, "
         "Name TEXT NOT NULL, "
-        "Type INTEGER NOT NULL, " // 0:Text, 1:Voice, 2:Video, 3:Kanban
+        "Type INTEGER NOT NULL, "
         "FOREIGN KEY(ServerID) REFERENCES Servers(ID) ON DELETE CASCADE);"
 
-        // --- ARKADAŞLIK TABLOSU ---
+        // EKLENDİ: Mesajlar Tablosu
+        "CREATE TABLE IF NOT EXISTS Messages ("
+        "ID INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "ChannelID INTEGER, "
+        "SenderID INTEGER, "
+        "Content TEXT, "
+        "AttachmentURL TEXT, "
+        "Timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, "
+        "FOREIGN KEY(ChannelID) REFERENCES Channels(ID) ON DELETE CASCADE, "
+        "FOREIGN KEY(SenderID) REFERENCES Users(ID));"
+
         "CREATE TABLE IF NOT EXISTS Friends ("
         "RequesterID INTEGER, "
         "TargetID INTEGER, "
-        "Status INTEGER DEFAULT 0, " // 0:Bekliyor, 1:Arkadaş
+        "Status INTEGER DEFAULT 0, "
         "CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP, "
         "PRIMARY KEY (RequesterID, TargetID), "
         "FOREIGN KEY(RequesterID) REFERENCES Users(ID), "
         "FOREIGN KEY(TargetID) REFERENCES Users(ID));"
 
-        // --- KANBAN SİSTEMİ ---
         "CREATE TABLE IF NOT EXISTS KanbanLists ("
         "ID INTEGER PRIMARY KEY AUTOINCREMENT, "
         "ChannelID INTEGER, "
@@ -145,12 +174,36 @@ std::optional<User> DatabaseManager::getUser(const std::string& email) {
 
     std::optional<User> user = std::nullopt;
     if (sqlite3_step(stmt) == SQLITE_ROW) {
-        // Explicit Construction
+        // DÜZELTİLDİ: Struct sırasına tam uyum
+        // Struct: id, name, email, password_hash, is_system_admin, status, avatar_url
+        user = User{
+            sqlite3_column_int(stmt, 0),      // id
+            SAFE_TEXT(1),                     // name
+            SAFE_TEXT(2),                     // email
+            "",                               // password_hash (güvenlik için boş dönüyoruz)
+            sqlite3_column_int(stmt, 4) != 0, // is_system_admin
+            SAFE_TEXT(3),                     // status
+            SAFE_TEXT(5)                      // avatar_url
+        };
+    }
+    sqlite3_finalize(stmt);
+    return user;
+}
+
+std::optional<User> DatabaseManager::getUserById(int id) {
+    const char* sql = "SELECT ID, Name, Email, Status, IsSystemAdmin, AvatarURL FROM Users WHERE ID = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return std::nullopt;
+
+    sqlite3_bind_int(stmt, 1, id);
+
+    std::optional<User> user = std::nullopt;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
         user = User{
             sqlite3_column_int(stmt, 0),
             SAFE_TEXT(1),
             SAFE_TEXT(2),
-            "", // Password hash dönmüyoruz
+            "",
             sqlite3_column_int(stmt, 4) != 0,
             SAFE_TEXT(3),
             SAFE_TEXT(5)
@@ -160,11 +213,7 @@ std::optional<User> DatabaseManager::getUser(const std::string& email) {
     return user;
 }
 
-std::optional<User> DatabaseManager::getUserById(int id) {
-    // Implementasyon gerekiyorsa eklenebilir, şimdilik boş
-    return std::nullopt;
-}
-
+// EKLENDİ: Profil Fotosu Güncelleme
 bool DatabaseManager::updateUserAvatar(int userId, const std::string& avatarUrl) {
     std::string sql = "UPDATE Users SET AvatarURL = '" + avatarUrl + "' WHERE ID = " + std::to_string(userId) + ";";
     return executeQuery(sql);
@@ -186,7 +235,6 @@ bool DatabaseManager::acceptFriendRequest(int requesterId, int myId) {
 }
 
 bool DatabaseManager::rejectOrRemoveFriend(int otherUserId, int myId) {
-    // Hem gelen isteği reddetmek hem de var olan arkadaşı silmek için kullanılabilir
     std::string sql = "DELETE FROM Friends WHERE (RequesterID = " + std::to_string(otherUserId) +
         " AND TargetID = " + std::to_string(myId) + ") OR (RequesterID = " +
         std::to_string(myId) + " AND TargetID = " + std::to_string(otherUserId) + ");";
@@ -202,7 +250,6 @@ std::vector<FriendRequest> DatabaseManager::getPendingRequests(int myId) {
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
         while (sqlite3_step(stmt) == SQLITE_ROW) {
-            // HATA ÇÖZÜMÜ: Explicit Constructor
             requests.push_back(FriendRequest{
                 sqlite3_column_int(stmt, 0), // requester_id
                 SAFE_TEXT(1),                // requester_name
@@ -217,7 +264,6 @@ std::vector<FriendRequest> DatabaseManager::getPendingRequests(int myId) {
 
 std::vector<User> DatabaseManager::getFriendsList(int myId) {
     std::vector<User> friends;
-    // Hem benim eklediklerim hem beni ekleyenler ve Durum=1 (Arkadaş)
     std::string sql = "SELECT U.ID, U.Name, U.Email, U.Status, U.IsSystemAdmin, U.AvatarURL FROM Users U "
         "JOIN Friends F ON (U.ID = F.RequesterID OR U.ID = F.TargetID) "
         "WHERE (F.RequesterID = " + std::to_string(myId) + " OR F.TargetID = " + std::to_string(myId) + ") "
@@ -226,15 +272,15 @@ std::vector<User> DatabaseManager::getFriendsList(int myId) {
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
         while (sqlite3_step(stmt) == SQLITE_ROW) {
-            // HATA ÇÖZÜMÜ: Explicit Constructor
+            // DÜZELTİLDİ: Struct sırasına uyum
             friends.push_back(User{
-                sqlite3_column_int(stmt, 0), // id
-                SAFE_TEXT(1),                // name
-                SAFE_TEXT(2),                // email
-                "",                          // password_hash
-                sqlite3_column_int(stmt, 4) != 0, // is_system_admin
-                SAFE_TEXT(3),                // status
-                SAFE_TEXT(5)                 // avatar_url
+                sqlite3_column_int(stmt, 0),
+                SAFE_TEXT(1),
+                SAFE_TEXT(2),
+                "",
+                sqlite3_column_int(stmt, 4) != 0,
+                SAFE_TEXT(3),
+                SAFE_TEXT(5)
                 });
         }
     }
@@ -242,18 +288,82 @@ std::vector<User> DatabaseManager::getFriendsList(int myId) {
     return friends;
 }
 
-// --- DİĞER (SUNUCU & KANBAN) ---
+// --- SUNUCU, ROL VE KANAL İŞLEMLERİ ---
 
 int DatabaseManager::createServer(const std::string& name, int ownerId) {
     std::string sql = "INSERT INTO Servers (Name, OwnerID, InviteCode) VALUES ('" + name + "', " + std::to_string(ownerId) + ", 'INV-" + name + "');";
     if (!executeQuery(sql)) return -1;
-    return (int)sqlite3_last_insert_rowid(db);
+
+    int serverId = (int)sqlite3_last_insert_rowid(db);
+
+    // Kurucuyu otomatik üye yap ve Admin rolü ver
+    addMemberToServer(serverId, ownerId);
+    createRole(serverId, "Admin", 100, 9999);
+
+    return serverId;
+}
+
+bool DatabaseManager::addMemberToServer(int serverId, int userId) {
+    std::string sql = "INSERT INTO ServerMembers (ServerID, UserID) VALUES (" + std::to_string(serverId) + ", " + std::to_string(userId) + ");";
+    return executeQuery(sql);
 }
 
 bool DatabaseManager::createChannel(int serverId, std::string name, int type) {
     std::string sql = "INSERT INTO Channels (ServerID, Name, Type) VALUES (" + std::to_string(serverId) + ", '" + name + "', " + std::to_string(type) + ");";
     return executeQuery(sql);
 }
+
+bool DatabaseManager::createRole(int serverId, std::string roleName, int hierarchy, int permissions) {
+    std::string sql = "INSERT INTO Roles (ServerID, RoleName, Hierarchy, Permissions) VALUES (" +
+        std::to_string(serverId) + ", '" + roleName + "', " +
+        std::to_string(hierarchy) + ", " + std::to_string(permissions) + ");";
+    return executeQuery(sql);
+}
+
+// --- MESAJLAŞMA ---
+
+bool DatabaseManager::sendMessage(int channelId, int senderId, const std::string& content, const std::string& attachmentUrl) {
+    const char* sql = "INSERT INTO Messages (ChannelID, SenderID, Content, AttachmentURL) VALUES (?, ?, ?, ?);";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+
+    sqlite3_bind_int(stmt, 1, channelId);
+    sqlite3_bind_int(stmt, 2, senderId);
+    sqlite3_bind_text(stmt, 3, content.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 4, attachmentUrl.c_str(), -1, SQLITE_STATIC);
+
+    bool success = (sqlite3_step(stmt) == SQLITE_DONE);
+    sqlite3_finalize(stmt);
+    return success;
+}
+
+std::vector<Message> DatabaseManager::getChannelMessages(int channelId, int limit) {
+    std::vector<Message> messages;
+    std::string sql = "SELECT M.ID, M.SenderID, U.Name, U.AvatarURL, M.Content, M.AttachmentURL, M.Timestamp "
+        "FROM Messages M JOIN Users U ON M.SenderID = U.ID "
+        "WHERE M.ChannelID = " + std::to_string(channelId) +
+        " ORDER BY M.Timestamp ASC LIMIT " + std::to_string(limit) + ";";
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            messages.push_back(Message{
+                sqlite3_column_int(stmt, 0),
+                channelId,
+                sqlite3_column_int(stmt, 1),
+                SAFE_TEXT(2), // Sender Name
+                SAFE_TEXT(3), // Sender Avatar
+                SAFE_TEXT(4), // Content
+                SAFE_TEXT(5), // Attachment
+                SAFE_TEXT(6)  // Timestamp
+                });
+        }
+    }
+    sqlite3_finalize(stmt);
+    return messages;
+}
+
+// --- KANBAN ---
 
 bool DatabaseManager::createKanbanList(int boardChannelId, std::string title) {
     std::string sql = "INSERT INTO KanbanLists (ChannelID, Title, Position) VALUES (" + std::to_string(boardChannelId) + ", '" + title + "', 0);";
