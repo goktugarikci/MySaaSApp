@@ -4,12 +4,15 @@
 #include <sqlite3.h>
 #include <optional>
 
-// MODELLERİ DAHİL ET (DİKKAT: Bu dosyalar src/models/ klasöründe olmalı)
+// MODELLERİ DAHİL ET
 #include "../models/User.h"
 #include "../models/Server.h"
 #include "../models/Message.h"
-#include "../models/Kanban.h"
-#include "../models/Requests.h" // Eğer oluşturmadıysanız bu satırı silebilirsiniz ama önerilir.
+#include "../models/Kanban.h" // KanbanList burada tanımlı
+#include "../models/Requests.h"
+#include "../models/Payment.h"
+
+// --- DATABASE MANAGER SINIFI ---
 
 class DatabaseManager {
 private:
@@ -50,6 +53,8 @@ public:
     std::optional<Server> getServerDetails(int serverId);
     bool addMemberToServer(int serverId, int userId);
     bool removeMemberFromServer(int serverId, int userId);
+    bool joinServerByCode(int userId, const std::string& inviteCode);
+    bool kickMember(int serverId, int userId);
 
     // --- KANAL YÖNETİMİ ---
     bool createChannel(int serverId, std::string name, int type);
@@ -58,22 +63,24 @@ public:
     std::vector<Channel> getServerChannels(int serverId);
     int getServerKanbanCount(int serverId);
 
-    // --- ROL YÖNETİMİ (HATA ALAN KISIM BURASIYDI) ---
+    // --- ROL YÖNETİMİ ---
     bool createRole(int serverId, std::string roleName, int hierarchy, int permissions);
+    std::vector<Role> getServerRoles(int serverId);
+    bool assignRole(int serverId, int userId, int roleId);
 
     // --- MESAJLAŞMA ---
     bool sendMessage(int channelId, int senderId, const std::string& content, const std::string& attachmentUrl = "");
     bool updateMessage(int messageId, const std::string& newContent);
     bool deleteMessage(int messageId);
     std::vector<Message> getChannelMessages(int channelId, int limit = 50);
+    int getOrCreateDMChannel(int user1Id, int user2Id);
 
     // --- KANBAN / TRELLO ---
-    // DİKKAT: 'KanbanListWithCards' yerine artık 'KanbanList' kullanıyoruz.
+    // Hata Çözümü: KanbanListWithCards -> KanbanList
     std::vector<KanbanList> getKanbanBoard(int channelId);
     bool createKanbanList(int boardChannelId, std::string title);
     bool updateKanbanList(int listId, const std::string& title, int position);
     bool deleteKanbanList(int listId);
-
     bool createKanbanCard(int listId, std::string title, std::string desc, int priority);
     bool updateKanbanCard(int cardId, std::string title, std::string description, int priority);
     bool deleteKanbanCard(int cardId);
@@ -85,20 +92,20 @@ public:
     bool rejectOrRemoveFriend(int otherUserId, int myId);
     std::vector<FriendRequest> getPendingRequests(int myId);
     std::vector<User> getFriendsList(int myId);
-    int getOrCreateDMChannel(int user1Id, int user2Id);
 
-    // --- [YENİ] SİSTEM YÖNETİCİSİ (ADMIN) ---
-    struct SystemStats { int user_count; int server_count; int message_count; };
+    // --- ÖDEME SİSTEMİ ---
+    bool createPaymentRecord(int userId, const std::string& providerId, float amount, const std::string& currency);
+    bool updatePaymentStatus(const std::string& providerId, const std::string& status);
+    std::vector<PaymentTransaction> getUserPayments(int userId);
+
+    // --- RAPORLAMA & YÖNETİCİ ---
+    bool createReport(int reporterId, int contentId, const std::string& type, const std::string& reason);
+    std::vector<UserReport> getOpenReports();
+    bool resolveReport(int reportId);
+
+    // Hata Çözümü: Dönüş tipi sadece SystemStats (başında DatabaseManager:: yok)
     SystemStats getSystemStats();
-    std::vector<User> getAllUsers(); // Tüm kullanıcıları listeler
-    bool banUser(int userId); // Kullanıcıyı yasaklar
-
-    // --- [YENİ] ÜYE VE ROL YÖNETİMİ ---
-    bool joinServerByCode(int userId, const std::string& inviteCode); // Kod ile katıl
-    bool kickMember(int serverId, int userId); // Sunucudan at
-    std::vector<Role> getServerRoles(int serverId); // Rolleri getir
-    bool assignRole(int serverId, int userId, int roleId); // Kullanıcıya rol ver
-
-    // --- [YENİ] BİREBİR SOHBET (DM) ---
-    int getOrCreateDMChannel(int user1Id, int user2Id);
+    std::vector<User> getAllUsers();
+    bool banUser(int userId);
+    bool isSystemAdmin(int userId);
 };

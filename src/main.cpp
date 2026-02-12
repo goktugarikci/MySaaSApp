@@ -9,6 +9,45 @@ const std::string GOOGLE_CLIENT_ID = "BURAYA_GOOGLE_CLIENT_ID_YAZIN";
 const std::string GOOGLE_CLIENT_SECRET = "BURAYA_GOOGLE_CLIENT_SECRET_YAZIN";
 const std::string GOOGLE_REDIRECT_URI = "http://localhost:8080/api/auth/google/callback";
 
+// --- GÜVENLİK KATMANI (Middleware) ---
+// Bu fonksiyon, isteği yapan kişinin yetkili olup olmadığını kontrol eder.
+bool checkAuth(const crow::request& req, DatabaseManager& db, bool requireAdmin = false) {
+    // 1. Header Kontrolü (Authorization: Bearer <token>)
+    auto authHeader = req.get_header_value("Authorization");
+    if (authHeader.empty()) return false;
+
+    // 2. Token Ayrıştırma (Basitlik için mock token kullanıyoruz: "mock-jwt-token-USERID")
+    // Gerçek sistemde burada JWT Verify işlemi yapılır.
+    std::string token = authHeader.substr(0, 15); // "mock-jwt-token-"
+    if (token != "mock-jwt-token-") return false; // Geçersiz format
+
+    std::string userIdStr = authHeader.substr(15);
+    int userId = 0;
+    try {
+        userId = std::stoi(userIdStr);
+    }
+    catch (...) { return false; }
+
+    if (userId <= 0) return false;
+
+    // 3. Eğer Admin yetkisi gerekiyorsa DB'den kontrol et
+    if (requireAdmin) {
+        return db.isSystemAdmin(userId);
+    }
+
+    return true; // Giriş yapmış olması yeterli
+}
+
+// Token'dan ID dönen yardımcı (Güvenli kabul ettiğimiz yerlerde)
+int getUserIdFromHeader(const crow::request& req) {
+    auto authHeader = req.get_header_value("Authorization");
+    if (authHeader.empty()) return 0;
+    try {
+        return std::stoi(authHeader.substr(15));
+    }
+    catch (...) { return 0; }
+}
+
 int main() {
     // 1. Başlangıç Hazırlıkları
     FileManager::initDirectories();
@@ -569,6 +608,107 @@ int main() {
         return crow::response(500, "DM acilamadi");
             });
 
+    // =============================================================
+    // 11. ÖDEME SİSTEMİ (PAYMENT GATEWAY INTEGRATION)
+    // =============================================================
+
+    // Ödeme Başlat (Checkout)
+    CROW_ROUTE(app, "/api/payments/create-checkout").methods("POST"_method)
+        ([&db](const crow::request& req) {
+        // Güvenlik: Sadece giriş yapmış kullanıcılar
+        if (!checkAuth(req, db)) return crow::response(401);
+        int myId = getUserIdFromHeader(req);
+
+        auto x = crow::json::load(req.body);
+        if (!x || !x.has("amount")) return crow::response(400);
+
+        // 1. Harici Ödeme Sağlayıcıya (Stripe/Iyzico) İstek Atılır (Burada simüle ediyoruz)
+        // cpr::Post("https://api.stripe.com/v1/payment_intents", ...);
+
+        std::string providerId = "pay_" + std::to_string(std::time(nullptr)) + "_" + std::to_string(myId);
+        float amount = (float)x["amount"].d();
+
+        // 2. Veritabanına "Bekliyor" olarak kaydet
+        db.createPaymentRecord(myId, providerId, amount, "USD");
+
+        crow::json::wvalue res;
+        res["payment_token"] = providerId; // Frontend bu ID ile ödeme ekranını açar
+        res["checkout_url"] = "https://checkout.stripe.com/pay/" + providerId;
+        return crow::response(200, res);
+            });
+
+    // Webhook (Ödeme Sağlayıcıdan Gelen Onay)
+    CROW_ROUTE(app, "/api/payments/webhook").methods("POST"_method)
+        ([&db](const crow::request& req) {
+        // Bu endpointi dış dünya çağırır, o yüzden kullanıcı token kontrolü yapılmaz.
+        // Ancak Stripe Signature kontrolü yapılmalıdır.
+
+        auto x = crow::json::load(req.body);
+        if (x && x.has("payment_id") && x.has("status")) {
+            std::string pid = x["payment_id"].s();
+            std::string status = x["status"].s(); // 'success'
+
+            db.updatePaymentStatus(pid, status);
+
+            // Eğer başarılıysa kullanıcının aboneliğini güncelle
+            if (status == "success") {
+                // Burada payment_id'den user_id'yi bulup updateSubscription çağrılmalı
+                // db.updateUserSubscription(userId, 1, 30);
+            }
+            return crow::response(200);
+        }
+        return crow::response(400);
+            });
+
+    // Ödeme Geçmişim
+    CROW_ROUTE(app, "/api/payments/history")
+        ([&db](const crow::request& req) {
+        if (!checkAuth(req, db)) return crow::response(401);
+        int myId = getUserIdFromHeader(req);
+
+        auto payments = db.getUserPayments(myId);
+        crow::json::wvalue res;
+        for (size_t i = 0; i < payments.size(); i++) {
+            res[i]["id"] = payments[i].provider_payment_id;
+            res[i]["amount"] = payments[i].amount;
+            res[i]["status"] = payments[i].status;
+        }
+        return crow::response(200, res);
+            });
+
+    // =============================================================
+    // 12. RAPORLAMA & DENETİM
+    // =============================================================
+
+    // İçerik Bildir (Kullanıcılar İçin)
+    CROW_ROUTE(app, "/api/reports").methods("POST"_method)
+        ([&db](const crow::request& req) {
+        if (!checkAuth(req, db)) return crow::response(401);
+        int myId = getUserIdFromHeader(req);
+
+        auto x = crow::json::load(req.body);
+        // content_id, type (MESSAGE/USER), reason
+        if (db.createReport(myId, x["content_id"].i(), x["type"].s(), x["reason"].s()))
+            return crow::response(201, "Sikayet alindi");
+        return crow::response(500);
+            });
+
+    // Raporları Listele (SADECE ADMIN)
+    // DİKKAT: Burada requireAdmin = true gönderiyoruz.
+    CROW_ROUTE(app, "/api/admin/reports")
+        ([&db](const crow::request& req) {
+        if (!checkAuth(req, db, true)) return crow::response(403, "Yetkisiz Erisim: Admin Degilsiniz");
+
+        auto reports = db.getOpenReports();
+        crow::json::wvalue res;
+        for (size_t i = 0; i < reports.size(); i++) {
+            res[i]["id"] = reports[i].id;
+            res[i]["reporter_id"] = reports[i].reporter_id;
+            res[i]["reason"] = reports[i].reason;
+            res[i]["type"] = reports[i].type;
+        }
+        return crow::response(200, res);
+            });
 
     std::cout << "MySaaSApp Baslatildi: http://localhost:8080" << std::endl;
     app.port(8080).multithreaded().run();
