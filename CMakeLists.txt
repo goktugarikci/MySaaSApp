@@ -20,7 +20,7 @@ add_executable(MySaaSApp
     src/db/DatabaseManager.cpp 
     src/db/DatabaseManager.h
     src/utils/Security.cpp
-    src/utils/Security.h "src/utils/FileManager.h" "src/utils/FileManager.cpp" "src/models/User.h" "src/models/Server.h" "src/models/Message.h" "src/models/Kanban.h" "src/models/Requests.h")
+    src/utils/Security.h "src/utils/FileManager.h" "src/utils/FileManager.cpp" "src/models/User.h" "src/models/Server.h" "src/models/Message.h" "src/models/Kanban.h" "src/models/Requests.h" "src/models/Payment.h")
 
 # 3. Kütüphaneleri Bağla (Link)
 target_link_libraries(MySaaSApp PRIVATE
