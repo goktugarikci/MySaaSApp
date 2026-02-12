@@ -3,7 +3,7 @@
 #include <iostream>
 #include <algorithm> // std::min, std::max için
 
-// Yardımcı Makro
+// Yardımcı Makro: SQLite'dan gelen NULL verileri güvenli string'e çevirir
 #define SAFE_TEXT(col) (reinterpret_cast<const char*>(sqlite3_column_text(stmt, col)) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, col)) : "")
 
 DatabaseManager::DatabaseManager(const std::string& path) : db_path(path), db(nullptr) {}
@@ -118,7 +118,7 @@ bool DatabaseManager::isSystemAdmin(int userId) {
 }
 
 // =============================================================
-// ROL YÖNETİMİ (Eksik fonksiyon eklendi)
+// ROL YÖNETİMİ
 // =============================================================
 
 bool DatabaseManager::createRole(int serverId, std::string roleName, int hierarchy, int permissions) {
@@ -146,8 +146,7 @@ std::vector<Role> DatabaseManager::getServerRoles(int serverId) {
 }
 
 bool DatabaseManager::assignRole(int serverId, int userId, int roleId) {
-    // Gelecekte UserRoles tablosu eklenebilir. Şimdilik başarılı dönüyoruz.
-    return true;
+    return true; // İleride UserRoles tablosu eklenebilir.
 }
 
 // =============================================================
@@ -579,7 +578,9 @@ bool DatabaseManager::isSubscriptionActive(int userId) {
     sqlite3_stmt* stmt;
     bool active = false;
     if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
-        if (sqlite3_step(stmt) == SQLITE_ROW) if (sqlite3_column_int(stmt, 0) > 0) active = true;
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            if (sqlite3_column_int(stmt, 0) > 0) active = true;
+        }
     }
     sqlite3_finalize(stmt);
     return active;
@@ -598,7 +599,7 @@ bool DatabaseManager::updateUserSubscription(int userId, int level, int duration
     return executeQuery("UPDATE Users SET SubscriptionLevel=" + std::to_string(level) + ", SubscriptionExpiresAt=datetime('now', '+" + std::to_string(durationDays) + " days') WHERE ID=" + std::to_string(userId));
 }
 
-// Ödeme
+// ÖDEME (Hata Çözümü: Scope Kaldırıldı)
 bool DatabaseManager::createPaymentRecord(int userId, const std::string& providerId, float amount, const std::string& currency) {
     std::string sql = "INSERT INTO Payments (UserID, ProviderPaymentID, Amount, Currency) VALUES (" + std::to_string(userId) + ", '" + providerId + "', " + std::to_string(amount) + ", '" + currency + "');";
     return executeQuery(sql);
@@ -612,7 +613,7 @@ std::vector<PaymentTransaction> DatabaseManager::getUserPayments(int userId) {
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
         while (sqlite3_step(stmt) == SQLITE_ROW) {
-            payments.push_back({ sqlite3_column_int(stmt, 0), userId, SAFE_TEXT(1), (float)sqlite3_column_double(stmt, 2), SAFE_TEXT(3), SAFE_TEXT(4), SAFE_TEXT(5) });
+            payments.push_back({ sqlite3_column_int(stmt, 0), userId, SAFE_TEXT(2), (float)sqlite3_column_double(stmt, 3), SAFE_TEXT(4), SAFE_TEXT(5), SAFE_TEXT(6) });
         }
     }
     sqlite3_finalize(stmt);
