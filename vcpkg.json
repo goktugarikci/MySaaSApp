@@ -7,6 +7,7 @@
     "fmt",
     "nlohmann-json",
     "libdatachannel",
-    "argon2"
+    "argon2",
+    "cpr"
   ]
 }

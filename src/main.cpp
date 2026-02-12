@@ -2,9 +2,15 @@
 #include "db/DatabaseManager.h"
 #include "utils/Security.h"
 #include "utils/FileManager.h"
+#include <cpr/cpr.h> // Google Auth ve HTTP İstekleri için
+
+// --- YAPILANDIRMA ---
+const std::string GOOGLE_CLIENT_ID = "BURAYA_GOOGLE_CLIENT_ID_YAZIN";
+const std::string GOOGLE_CLIENT_SECRET = "BURAYA_GOOGLE_CLIENT_SECRET_YAZIN";
+const std::string GOOGLE_REDIRECT_URI = "http://localhost:8080/api/auth/google/callback";
 
 int main() {
-    // 1. Dosya Sistemi ve Veritabanı Hazırlığı
+    // 1. Başlangıç Hazırlıkları
     FileManager::initDirectories();
 
     DatabaseManager db("mysaasapp.db");
@@ -20,16 +26,14 @@ int main() {
     crow::SimpleApp app;
 
     // =============================================================
-    // 1. KİMLİK DOĞRULAMA (AUTH)
+    // 1. KİMLİK DOĞRULAMA (AUTH & GOOGLE)
     // =============================================================
 
-    // KAYIT OL
     CROW_ROUTE(app, "/api/auth/register").methods("POST"_method)
         ([&db](const crow::request& req) {
         auto x = crow::json::load(req.body);
         if (!x) return crow::response(400, "Hatali JSON");
 
-        // Basit validasyon
         if (!x.has("name") || !x.has("email") || !x.has("password"))
             return crow::response(400, "Eksik bilgi: name, email, password gerekli.");
 
@@ -39,72 +43,140 @@ int main() {
         return crow::response(400, "Kayit basarisiz (Email kullanimda olabilir)");
             });
 
-    // GİRİŞ YAP
     CROW_ROUTE(app, "/api/auth/login").methods("POST"_method)
         ([&db](const crow::request& req) {
         auto x = crow::json::load(req.body);
-        if (!x) return crow::response(400, "Hatali JSON");
+        if (!x) return crow::response(400);
 
         if (db.loginUser(x["email"].s(), x["password"].s())) {
             auto user = db.getUser(x["email"].s());
+            if (!user) return crow::response(500, "Kullanici verisi alinamadi");
 
-            crow::json::wvalue res;
-            res["token"] = "mock-jwt-token-123456"; // Gerçek projede JWT üretilmeli
-            res["user_id"] = user->id;
-            res["name"] = user->name;
-            res["avatar_url"] = user->avatar_url;
+            crow::json::wvalue res = user->toJson();
+            res["token"] = "mock-jwt-token-" + std::to_string(user->id);
             return crow::response(200, res);
         }
         return crow::response(401, "Hatali e-posta veya sifre");
             });
 
-    // PROFİL BİLGİLERİM
-    CROW_ROUTE(app, "/api/users/me")
-        ([&db](const crow::request& req) {
-        // TODO: Token'dan UserID alınmalı. Test için ID=1.
-        int myId = 1;
-
-        // ID ile kullanıcı çekme fonksiyonu (getUserById) kullanılmalı
-        // Şimdilik örnek veri dönüyoruz veya email ile çekebiliriz
-        auto user = db.getUserById(myId);
-
-        if (user) {
-            crow::json::wvalue res;
-            res["id"] = user->id;
-            res["name"] = user->name;
-            res["email"] = user->email;
-            res["avatar_url"] = user->avatar_url;
-            res["status"] = user->status;
-            res["subscription_level"] = user->subscription_level;
-            return crow::response(200, res);
-        }
-        return crow::response(404, "Kullanici bulunamadi");
+    CROW_ROUTE(app, "/api/auth/google/url")
+        ([]() {
+        std::string url = "https://accounts.google.com/o/oauth2/v2/auth?"
+            "client_id=" + GOOGLE_CLIENT_ID +
+            "&redirect_uri=" + GOOGLE_REDIRECT_URI +
+            "&response_type=code"
+            "&scope=email%20profile";
+        crow::json::wvalue res;
+        res["url"] = url;
+        return crow::response(200, res);
             });
 
-    // PROFİL FOTOĞRAFI GÜNCELLEME
-    CROW_ROUTE(app, "/api/users/me/avatar").methods("PUT"_method)
+    CROW_ROUTE(app, "/api/auth/google/callback").methods("POST"_method)
         ([&db](const crow::request& req) {
-        int myId = 1; // Token'dan gelecek
         auto x = crow::json::load(req.body);
-        if (!x || !x.has("avatar_url")) return crow::response(400, "avatar_url gerekli");
+        if (!x || !x.has("code")) return crow::response(400, "Code gerekli");
+        std::string code = x["code"].s();
 
-        if (db.updateUserAvatar(myId, x["avatar_url"].s()))
-            return crow::response(200, "Avatar guncellendi");
-        return crow::response(500, "Veritabani hatasi");
+        cpr::Response r = cpr::Post(cpr::Url{ "https://oauth2.googleapis.com/token" },
+            cpr::Payload{ {"client_id", GOOGLE_CLIENT_ID},
+                         {"client_secret", GOOGLE_CLIENT_SECRET},
+                         {"code", code},
+                         {"grant_type", "authorization_code"},
+                         {"redirect_uri", GOOGLE_REDIRECT_URI} });
+
+        auto tokenJson = crow::json::load(r.text);
+        if (!tokenJson || !tokenJson.has("access_token"))
+            return crow::response(400, "Google token hatasi: " + r.text);
+
+        std::string accessToken = tokenJson["access_token"].s();
+
+        cpr::Response userRes = cpr::Get(cpr::Url{ "https://www.googleapis.com/oauth2/v1/userinfo" },
+            cpr::Bearer{ accessToken });
+
+        auto userInfo = crow::json::load(userRes.text);
+        if (!userInfo) return crow::response(400, "Google user info hatasi");
+
+        std::string googleId = userInfo["id"].s();
+        std::string email = userInfo["email"].s();
+        std::string name = userInfo["name"].s();
+        std::string picture = userInfo["picture"].s();
+
+        auto existingUser = db.getUserByGoogleId(googleId);
+        int userId = 0;
+
+        if (existingUser) {
+            userId = existingUser->id;
+        }
+        else {
+            if (db.createGoogleUser(name, email, googleId, picture)) {
+                auto newUser = db.getUserByGoogleId(googleId);
+                if (newUser) userId = newUser->id;
+            }
+            else {
+                return crow::response(500, "Google kullanicisi kaydedilemedi");
+            }
+        }
+
+        if (userId == 0) return crow::response(500, "Kullanici ID hatasi");
+
+        crow::json::wvalue res;
+        res["user_id"] = userId;
+        res["token"] = "mock-jwt-google-" + std::to_string(userId);
+        res["message"] = "Giris basarili";
+        return crow::response(200, res);
             });
 
     // =============================================================
-    // 2. DOSYA YÖNETİMİ (UPLOAD)
+    // 2. KULLANICI YÖNETİMİ
+    // =============================================================
+
+    CROW_ROUTE(app, "/api/users/me")
+        ([&db](const crow::request& req) {
+        int myId = 1; // TODO: JWT'den al
+        auto user = db.getUserById(myId);
+        if (user) return crow::response(200, user->toJson());
+        return crow::response(404, "Kullanici bulunamadi");
+            });
+
+    CROW_ROUTE(app, "/api/users/me").methods("PUT"_method)
+        ([&db](const crow::request& req) {
+        int myId = 1;
+        auto x = crow::json::load(req.body);
+        if (!x) return crow::response(400);
+
+        if (db.updateUserDetails(myId, x["name"].s(), x["status"].s()))
+            return crow::response(200, "Profil guncellendi");
+        return crow::response(500);
+            });
+
+    CROW_ROUTE(app, "/api/users/me").methods("DELETE"_method)
+        ([&db]() {
+        int myId = 1;
+        if (db.deleteUser(myId)) return crow::response(200, "Hesap silindi");
+        return crow::response(500);
+            });
+
+    CROW_ROUTE(app, "/api/users/me/avatar").methods("PUT"_method)
+        ([&db](const crow::request& req) {
+        int myId = 1;
+        auto x = crow::json::load(req.body);
+        if (!x || !x.has("avatar_url")) return crow::response(400);
+
+        if (db.updateUserAvatar(myId, x["avatar_url"].s()))
+            return crow::response(200, "Avatar guncellendi");
+        return crow::response(500);
+            });
+
+    // =============================================================
+    // 3. DOSYA SİSTEMİ
     // =============================================================
 
     CROW_ROUTE(app, "/api/upload").methods("POST"_method)
         ([&db](const crow::request& req) {
         crow::multipart::message msg(req);
-
         std::string original_filename, file_content, upload_type;
         bool has_file = false, has_type = false;
 
-        // Multipart veriyi güvenli şekilde ayrıştır
         for (const auto& part : msg.parts) {
             const auto& content_disposition = part.get_header_object("Content-Disposition");
             if (content_disposition.params.count("name")) {
@@ -123,17 +195,14 @@ int main() {
         }
 
         if (!has_file || !has_type)
-            return crow::response(400, "Eksik parametre: file ve type gereklidir.");
+            return crow::response(400, "Eksik parametre: file ve type");
 
         try {
-            FileManager::FileType fType = (upload_type == "avatar") ?
-                FileManager::FileType::AVATAR :
-                FileManager::FileType::ATTACHMENT;
-
-            std::string fileUrl = FileManager::saveFile(file_content, original_filename, fType);
+            auto fType = (upload_type == "avatar") ? FileManager::FileType::AVATAR : FileManager::FileType::ATTACHMENT;
+            std::string url = FileManager::saveFile(file_content, original_filename, fType);
 
             crow::json::wvalue result;
-            result["url"] = fileUrl;
+            result["url"] = url;
             return crow::response(200, result);
         }
         catch (const std::exception& e) {
@@ -141,16 +210,10 @@ int main() {
         }
             });
 
-    // STATİK DOSYA SUNUMU
     CROW_ROUTE(app, "/uploads/<path>")
         ([](const crow::request& req, crow::response& res, std::string path) {
-        std::string fullPath = "/uploads/" + path;
-        std::string content = FileManager::readFile(fullPath);
-
-        if (content.empty()) {
-            res.code = 404;
-            res.write("Dosya yok");
-        }
+        std::string content = FileManager::readFile("/uploads/" + path);
+        if (content.empty()) { res.code = 404; res.write("Dosya yok"); }
         else {
             res.code = 200;
             if (path.find(".png") != std::string::npos) res.set_header("Content-Type", "image/png");
@@ -161,174 +224,193 @@ int main() {
             });
 
     // =============================================================
-    // 3. ARKADAŞLIK SİSTEMİ
+    // 4. ARKADAŞLIK
     // =============================================================
 
     CROW_ROUTE(app, "/api/friends")
         ([&db]() {
-        int myId = 1; // Token'dan gelecek
+        int myId = 1;
         auto friends = db.getFriendsList(myId);
-
         crow::json::wvalue res;
-        for (size_t i = 0; i < friends.size(); i++) {
-            res[i]["id"] = friends[i].id;
-            res[i]["name"] = friends[i].name;
-            res[i]["avatar_url"] = friends[i].avatar_url;
-            res[i]["status"] = friends[i].status;
-        }
+        for (size_t i = 0; i < friends.size(); i++) res[i] = friends[i].toJson();
+        return crow::response(200, res);
+            });
+
+    CROW_ROUTE(app, "/api/friends/requests")
+        ([&db]() {
+        int myId = 1;
+        auto reqs = db.getPendingRequests(myId);
+        crow::json::wvalue res;
+        for (size_t i = 0; i < reqs.size(); i++) res[i] = reqs[i].toJson();
         return crow::response(200, res);
             });
 
     CROW_ROUTE(app, "/api/friends/request").methods("POST"_method)
         ([&db](const crow::request& req) {
-        int myId = 1;
         auto x = crow::json::load(req.body);
         if (!x || !x.has("target_id")) return crow::response(400);
 
-        if (db.sendFriendRequest(myId, x["target_id"].i()))
-            return crow::response(200, "Istek gonderildi");
-        return crow::response(400, "Istek gonderilemedi (Zaten arkadas veya istek var)");
+        if (db.sendFriendRequest(1, x["target_id"].i())) return crow::response(200, "Istek gonderildi");
+        return crow::response(400);
             });
 
     CROW_ROUTE(app, "/api/friends/request/<int>").methods("PUT"_method)
         ([&db](const crow::request& req, int requesterId) {
-        int myId = 1;
-        if (db.acceptFriendRequest(requesterId, myId))
-            return crow::response(200, "Kabul edildi");
-        return crow::response(400, "Hata");
+        if (db.acceptFriendRequest(requesterId, 1)) return crow::response(200, "Kabul edildi");
+        return crow::response(400);
+            });
+
+    CROW_ROUTE(app, "/api/friends/<int>").methods("DELETE"_method)
+        ([&db](int otherId) {
+        if (db.rejectOrRemoveFriend(otherId, 1)) return crow::response(200, "Silindi/Reddedildi");
+        return crow::response(500);
             });
 
     // =============================================================
-    // 4. SUNUCU & KANAL YÖNETİMİ
+    // 5. SUNUCU & KANAL
     // =============================================================
 
-    // SUNUCULARIM
     CROW_ROUTE(app, "/api/servers")
         ([&db]() {
-        int myId = 1;
-        auto servers = db.getUserServers(myId);
-
+        auto servers = db.getUserServers(1);
         crow::json::wvalue res;
-        for (size_t i = 0; i < servers.size(); i++) {
-            res[i]["id"] = servers[i].id;
-            res[i]["name"] = servers[i].name;
-            res[i]["icon_url"] = servers[i].icon_url;
-            res[i]["created_at"] = servers[i].created_at;
-            res[i]["member_count"] = servers[i].member_count;
-        }
+        for (size_t i = 0; i < servers.size(); i++) res[i] = servers[i].toJson();
         return crow::response(200, res);
             });
 
-    // YENİ SUNUCU (Limit Kontrollü)
+    CROW_ROUTE(app, "/api/servers/<int>")
+        ([&db](int id) {
+        auto s = db.getServerDetails(id);
+        if (s) return crow::response(200, s->toJson());
+        return crow::response(404);
+            });
+
     CROW_ROUTE(app, "/api/servers").methods("POST"_method)
         ([&db](const crow::request& req) {
-        int myId = 1;
         auto x = crow::json::load(req.body);
-        if (!x || !x.has("name")) return crow::response(400);
+        if (!x) return crow::response(400);
 
-        int srvId = db.createServer(x["name"].s(), myId);
-        if (srvId > 0) {
-            crow::json::wvalue res;
-            res["id"] = srvId;
-            res["message"] = "Sunucu olusturuldu";
+        int id = db.createServer(x["name"].s(), 1);
+        if (id > 0) {
+            crow::json::wvalue res; res["id"] = id;
             return crow::response(201, res);
         }
-        return crow::response(403, "Sunucu olusturulamadi (Limit asimi olabilir)");
+        return crow::response(403, "Limit asimi");
             });
 
-    // SUNUCU KANALLARI
+    CROW_ROUTE(app, "/api/servers/<int>").methods("PUT"_method)
+        ([&db](const crow::request& req, int id) {
+        auto x = crow::json::load(req.body);
+        if (db.updateServer(id, x["name"].s(), x["icon_url"].s())) return crow::response(200, "Guncellendi");
+        return crow::response(500);
+            });
+
+    CROW_ROUTE(app, "/api/servers/<int>").methods("DELETE"_method)
+        ([&db](int id) {
+        if (db.deleteServer(id)) return crow::response(200, "Silindi");
+        return crow::response(500);
+            });
+
     CROW_ROUTE(app, "/api/servers/<int>/channels")
-        ([&db](int serverId) {
-        auto channels = db.getServerChannels(serverId);
+        ([&db](int srvId) {
+        auto channels = db.getServerChannels(srvId);
         crow::json::wvalue res;
-        for (size_t i = 0; i < channels.size(); i++) {
-            res[i]["id"] = channels[i].id;
-            res[i]["name"] = channels[i].name;
-            res[i]["type"] = channels[i].type;
-        }
+        for (size_t i = 0; i < channels.size(); i++) res[i] = channels[i].toJson();
         return crow::response(200, res);
             });
 
-    // YENİ KANAL (TodoList Limiti Var)
     CROW_ROUTE(app, "/api/servers/<int>/channels").methods("POST"_method)
-        ([&db](const crow::request& req, int serverId) {
+        ([&db](const crow::request& req, int srvId) {
         auto x = crow::json::load(req.body);
-        if (!x || !x.has("name") || !x.has("type")) return crow::response(400);
+        if (db.createChannel(srvId, x["name"].s(), x["type"].i())) return crow::response(201, "Olusturuldu");
+        return crow::response(403, "Limit hatasi");
+            });
 
-        if (db.createChannel(serverId, x["name"].s(), x["type"].i()))
-            return crow::response(201, "Kanal olusturuldu");
-        return crow::response(403, "Kanal olusturulamadi (TodoList limiti olabilir)");
+    CROW_ROUTE(app, "/api/channels/<int>").methods("PUT"_method)
+        ([&db](const crow::request& req, int id) {
+        auto x = crow::json::load(req.body);
+        if (db.updateChannel(id, x["name"].s())) return crow::response(200, "Guncellendi");
+        return crow::response(500);
+            });
+
+    CROW_ROUTE(app, "/api/channels/<int>").methods("DELETE"_method)
+        ([&db](int id) {
+        if (db.deleteChannel(id)) return crow::response(200, "Silindi");
+        return crow::response(500);
             });
 
     // =============================================================
-    // 5. MESAJLAŞMA
+    // 6. MESAJLAŞMA
     // =============================================================
 
     CROW_ROUTE(app, "/api/channels/<int>/messages")
-        ([&db](int channelId) {
-        auto msgs = db.getChannelMessages(channelId, 50);
+        ([&db](int chId) {
+        auto msgs = db.getChannelMessages(chId, 50);
         crow::json::wvalue res;
-        for (size_t i = 0; i < msgs.size(); i++) {
-            res[i]["id"] = msgs[i].id;
-            res[i]["sender_name"] = msgs[i].sender_name;
-            res[i]["sender_avatar"] = msgs[i].sender_avatar;
-            res[i]["content"] = msgs[i].content;
-            res[i]["attachment_url"] = msgs[i].attachment_url;
-            res[i]["timestamp"] = msgs[i].timestamp;
-        }
+        for (size_t i = 0; i < msgs.size(); i++) res[i] = msgs[i].toJson();
         return crow::response(200, res);
             });
 
     CROW_ROUTE(app, "/api/channels/<int>/messages").methods("POST"_method)
-        ([&db](const crow::request& req, int channelId) {
-        int myId = 1;
+        ([&db](const crow::request& req, int chId) {
         auto x = crow::json::load(req.body);
         if (!x || !x.has("content")) return crow::response(400);
 
+        // HATA DÜZELTİLDİ: Ternary operatörü yerine güvenli kontrol
         std::string attach = "";
-        if (x.has("attachment_url")) attach = x["attachment_url"].s();
-
-        if (db.sendMessage(channelId, myId, x["content"].s(), attach))
-            return crow::response(200, "Gonderildi");
-        return crow::response(500, "Hata");
-            });
-
-    // =============================================================
-    // 6. KANBAN (TRELLO) PROJE YÖNETİMİ
-    // =============================================================
-
-    // PANOYU GETİR
-    CROW_ROUTE(app, "/api/boards/<int>")
-        ([&db](int channelId) {
-        auto board = db.getKanbanBoard(channelId);
-
-        crow::json::wvalue res;
-        for (size_t i = 0; i < board.size(); i++) {
-            res[i]["id"] = board[i].id;
-            res[i]["title"] = board[i].title;
-            res[i]["position"] = board[i].position;
-
-            for (size_t j = 0; j < board[i].cards.size(); j++) {
-                res[i]["cards"][j]["id"] = board[i].cards[j].id;
-                res[i]["cards"][j]["title"] = board[i].cards[j].title;
-                res[i]["cards"][j]["description"] = board[i].cards[j].description;
-                res[i]["cards"][j]["priority"] = board[i].cards[j].priority;
-                res[i]["cards"][j]["position"] = board[i].cards[j].position;
-            }
+        if (x.has("attachment_url")) {
+            attach = x["attachment_url"].s();
         }
-        return crow::response(200, res);
-            });
 
-    // YENİ LİSTE EKLE
-    CROW_ROUTE(app, "/api/boards/<int>/lists").methods("POST"_method)
-        ([&db](const crow::request& req, int channelId) {
-        auto x = crow::json::load(req.body);
-        if (db.createKanbanList(channelId, x["title"].s()))
-            return crow::response(201, "Liste eklendi");
+        if (db.sendMessage(chId, 1, x["content"].s(), attach)) return crow::response(201, "Gonderildi");
         return crow::response(500);
             });
 
-    // YENİ KART EKLE
+    CROW_ROUTE(app, "/api/messages/<int>").methods("PUT"_method)
+        ([&db](const crow::request& req, int msgId) {
+        auto x = crow::json::load(req.body);
+        if (db.updateMessage(msgId, x["content"].s())) return crow::response(200, "Duzenlendi");
+        return crow::response(500);
+            });
+
+    CROW_ROUTE(app, "/api/messages/<int>").methods("DELETE"_method)
+        ([&db](int msgId) {
+        if (db.deleteMessage(msgId)) return crow::response(200, "Silindi");
+        return crow::response(500);
+            });
+
+    // =============================================================
+    // 7. KANBAN / TRELLO
+    // =============================================================
+
+    CROW_ROUTE(app, "/api/boards/<int>")
+        ([&db](int chId) {
+        auto board = db.getKanbanBoard(chId);
+        crow::json::wvalue res;
+        for (size_t i = 0; i < board.size(); i++) res[i] = board[i].toJson();
+        return crow::response(200, res);
+            });
+
+    CROW_ROUTE(app, "/api/boards/<int>/lists").methods("POST"_method)
+        ([&db](const crow::request& req, int chId) {
+        auto x = crow::json::load(req.body);
+        if (db.createKanbanList(chId, x["title"].s())) return crow::response(201, "Liste eklendi");
+        return crow::response(500);
+            });
+
+    CROW_ROUTE(app, "/api/lists/<int>").methods("PUT"_method)
+        ([&db](const crow::request& req, int listId) {
+        auto x = crow::json::load(req.body);
+        if (db.updateKanbanList(listId, x["title"].s(), x["position"].i())) return crow::response(200, "Liste guncellendi");
+        return crow::response(500);
+            });
+
+    CROW_ROUTE(app, "/api/lists/<int>").methods("DELETE"_method)
+        ([&db](int listId) {
+        if (db.deleteKanbanList(listId)) return crow::response(200, "Liste silindi");
+        return crow::response(500);
+            });
+
     CROW_ROUTE(app, "/api/lists/<int>/cards").methods("POST"_method)
         ([&db](const crow::request& req, int listId) {
         auto x = crow::json::load(req.body);
@@ -337,17 +419,29 @@ int main() {
         return crow::response(500);
             });
 
-    // KART TAŞIMA (Sürükle-Bırak)
+    CROW_ROUTE(app, "/api/cards/<int>").methods("PUT"_method)
+        ([&db](const crow::request& req, int cardId) {
+        auto x = crow::json::load(req.body);
+        if (db.updateKanbanCard(cardId, x["title"].s(), x["description"].s(), x["priority"].i()))
+            return crow::response(200, "Kart guncellendi");
+        return crow::response(500);
+            });
+
     CROW_ROUTE(app, "/api/cards/<int>/move").methods("PUT"_method)
         ([&db](const crow::request& req, int cardId) {
         auto x = crow::json::load(req.body);
         if (db.moveCard(cardId, x["new_list_id"].i(), x["new_position"].i()))
-            return crow::response(200, "Tasindi");
+            return crow::response(200, "Kart tasindi");
         return crow::response(500);
             });
 
-    // Sunucuyu Başlat
-    std::cout << "MySaaSApp API baslatiliyor: http://localhost:8080\n";
+    CROW_ROUTE(app, "/api/cards/<int>").methods("DELETE"_method)
+        ([&db](int cardId) {
+        if (db.deleteKanbanCard(cardId)) return crow::response(200, "Kart silindi");
+        return crow::response(500);
+            });
+
+    std::cout << "MySaaSApp Baslatildi: http://localhost:8080" << std::endl;
     app.port(8080).multithreaded().run();
     return 0;
 }
