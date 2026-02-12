@@ -2,6 +2,13 @@
 #include <string>
 #include "crow.h"
 
+enum class UserRole {
+    USER = 0,
+    PREMIUM = 1,
+    MODERATOR = 2,
+    SYSTEM_ADMIN = 3
+};
+
 struct User {
     int id;
     std::string name;

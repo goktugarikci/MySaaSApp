@@ -9,6 +9,37 @@ const std::string GOOGLE_CLIENT_ID = "BURAYA_GOOGLE_CLIENT_ID_YAZIN";
 const std::string GOOGLE_CLIENT_SECRET = "BURAYA_GOOGLE_CLIENT_SECRET_YAZIN";
 const std::string GOOGLE_REDIRECT_URI = "http://localhost:8080/api/auth/google/callback";
 
+// Yetki Seviyeleri ve Token Kontrolü
+enum AuthResult { AUTHORIZED, UNAUTHORIZED, FORBIDDEN };
+
+AuthResult validateAccess(const crow::request& req, DatabaseManager& db, UserRole requiredRole) {
+    auto authHeader = req.get_header_value("Authorization");
+    if (authHeader.empty() || authHeader.find("Bearer ") != 0) return UNAUTHORIZED;
+
+    // "Bearer mock-jwt-token-ID" formatından ID'yi al
+    std::string token = authHeader.substr(7);
+    if (token.find("mock-jwt-token-") != 0) return UNAUTHORIZED;
+
+    try {
+        int userId = std::stoi(token.substr(15));
+        auto user = db.getUserById(userId);
+        if (!user) return UNAUTHORIZED;
+
+        // Rol Kontrolü: Admin her şeye erişir (Hierarchy)
+        if (user->is_system_admin) return AUTHORIZED;
+
+        // Basit hiyerarşi kontrolü (Sayısal değer karşılaştırması)
+        // requiredRole: 3 (ADMIN), user: 0 (USER) -> FORBIDDEN
+        if (static_cast<int>(requiredRole) == 3 && !user->is_system_admin) return FORBIDDEN;
+
+        return AUTHORIZED;
+    }
+    catch (...) {
+        return UNAUTHORIZED;
+    }
+}
+
+
 // --- GÜVENLİK KATMANI (Middleware) ---
 // Bu fonksiyon, isteği yapan kişinin yetkili olup olmadığını kontrol eder.
 bool checkAuth(const crow::request& req, DatabaseManager& db, bool requireAdmin = false) {
