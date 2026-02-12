@@ -85,4 +85,20 @@ public:
     bool rejectOrRemoveFriend(int otherUserId, int myId);
     std::vector<FriendRequest> getPendingRequests(int myId);
     std::vector<User> getFriendsList(int myId);
+    int getOrCreateDMChannel(int user1Id, int user2Id);
+
+    // --- [YENİ] SİSTEM YÖNETİCİSİ (ADMIN) ---
+    struct SystemStats { int user_count; int server_count; int message_count; };
+    SystemStats getSystemStats();
+    std::vector<User> getAllUsers(); // Tüm kullanıcıları listeler
+    bool banUser(int userId); // Kullanıcıyı yasaklar
+
+    // --- [YENİ] ÜYE VE ROL YÖNETİMİ ---
+    bool joinServerByCode(int userId, const std::string& inviteCode); // Kod ile katıl
+    bool kickMember(int serverId, int userId); // Sunucudan at
+    std::vector<Role> getServerRoles(int serverId); // Rolleri getir
+    bool assignRole(int serverId, int userId, int roleId); // Kullanıcıya rol ver
+
+    // --- [YENİ] BİREBİR SOHBET (DM) ---
+    int getOrCreateDMChannel(int user1Id, int user2Id);
 };

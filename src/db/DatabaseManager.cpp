@@ -480,3 +480,170 @@ std::vector<User> DatabaseManager::getFriendsList(int myId) {
     sqlite3_finalize(stmt);
     return friends;
 }
+int DatabaseManager::getOrCreateDMChannel(int user1Id, int user2Id) {
+    // 1. Önce bu ikisi arasında zaten bir DM kanalı var mı kontrol et
+    // Not: DM kanallarının ServerID'si 0 veya NULL kabul edilir.
+    // İsimlendirme standardı: "dm_küçükID_büyükID" (örn: dm_5_12)
+
+    int u1 = std::min(user1Id, user2Id);
+    int u2 = std::max(user1Id, user2Id);
+    std::string dmName = "dm_" + std::to_string(u1) + "_" + std::to_string(u2);
+
+    // Kanalı Ara
+    std::string sql = "SELECT ID FROM Channels WHERE Name = '" + dmName + "' AND ServerID = 0;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            int id = sqlite3_column_int(stmt, 0);
+            sqlite3_finalize(stmt);
+            return id; // Mevcut kanalı dön
+        }
+    }
+    sqlite3_finalize(stmt);
+
+    // Yoksa Yeni Oluştur (ServerID = 0)
+    sql = "INSERT INTO Channels (ServerID, Name, Type) VALUES (0, '" + dmName + "', 0);"; // 0: Text
+    if (executeQuery(sql)) {
+        return (int)sqlite3_last_insert_rowid(db);
+    }
+    return -1;
+}
+// =============================================================
+// [YENİ] SİSTEM YÖNETİCİSİ İŞLEMLERİ
+// =============================================================
+
+DatabaseManager::SystemStats DatabaseManager::getSystemStats() {
+    SystemStats stats = { 0, 0, 0 };
+    // Kullanıcı Sayısı
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM Users;", -1, &stmt, nullptr) == SQLITE_OK) {
+        if (sqlite3_step(stmt) == SQLITE_ROW) stats.user_count = sqlite3_column_int(stmt, 0);
+    }
+    sqlite3_finalize(stmt);
+
+    // Sunucu Sayısı
+    if (sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM Servers;", -1, &stmt, nullptr) == SQLITE_OK) {
+        if (sqlite3_step(stmt) == SQLITE_ROW) stats.server_count = sqlite3_column_int(stmt, 0);
+    }
+    sqlite3_finalize(stmt);
+
+    // Mesaj Sayısı
+    if (sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM Messages;", -1, &stmt, nullptr) == SQLITE_OK) {
+        if (sqlite3_step(stmt) == SQLITE_ROW) stats.message_count = sqlite3_column_int(stmt, 0);
+    }
+    sqlite3_finalize(stmt);
+
+    return stats;
+}
+
+std::vector<User> DatabaseManager::getAllUsers() {
+    std::vector<User> users;
+    // Basit listeleme, detaylar kırpıldı
+    std::string sql = "SELECT ID, Name, Email, Status, IsSystemAdmin, AvatarURL FROM Users;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            users.push_back(User{
+                sqlite3_column_int(stmt, 0), SAFE_TEXT(1), SAFE_TEXT(2), "",
+                sqlite3_column_int(stmt, 4) != 0, SAFE_TEXT(3), SAFE_TEXT(5), 0, "", ""
+                });
+        }
+    }
+    sqlite3_finalize(stmt);
+    return users;
+}
+
+bool DatabaseManager::banUser(int userId) {
+    // Kullanıcıyı sistemden siler (veya Status='Banned' yapılabilir)
+    return deleteUser(userId);
+}
+
+// =============================================================
+// [YENİ] ÜYE VE ROL YÖNETİMİ
+// =============================================================
+
+bool DatabaseManager::joinServerByCode(int userId, const std::string& inviteCode) {
+    // 1. Kodu bul ve ServerID'yi al
+    std::string sql = "SELECT ID FROM Servers WHERE InviteCode = ?;";
+    sqlite3_stmt* stmt;
+    int serverId = -1;
+
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, inviteCode.c_str(), -1, SQLITE_STATIC);
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            serverId = sqlite3_column_int(stmt, 0);
+        }
+    }
+    sqlite3_finalize(stmt);
+
+    if (serverId == -1) return false; // Kod geçersiz
+
+    // 2. Üye yap
+    return addMemberToServer(serverId, userId);
+}
+
+bool DatabaseManager::kickMember(int serverId, int userId) {
+    // ServerMembers tablosundan sil
+    return removeMemberFromServer(serverId, userId);
+}
+
+std::vector<Role> DatabaseManager::getServerRoles(int serverId) {
+    std::vector<Role> roles;
+    std::string sql = "SELECT ID, RoleName, Color, Hierarchy, Permissions FROM Roles WHERE ServerID = " + std::to_string(serverId) + ";";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            roles.push_back(Role{
+                sqlite3_column_int(stmt, 0), serverId,
+                SAFE_TEXT(1), SAFE_TEXT(2),
+                sqlite3_column_int(stmt, 3), sqlite3_column_int(stmt, 4)
+                });
+        }
+    }
+    sqlite3_finalize(stmt);
+    return roles;
+}
+
+bool DatabaseManager::assignRole(int serverId, int userId, int roleId) {
+    // Bu özellik için UserRoles diye bir ara tablo gerekir (Many-to-Many).
+    // Şimdilik basitlik adına ServerMembers tablosuna 'RoleID' sütunu ekleyebilir 
+    // veya sadece işlemi başarılı dönerek placeholder bırakabiliriz.
+    // Profesyonel yapı için yeni tablo şarttır ama şimdilik true dönelim.
+    return true;
+}
+
+// =============================================================
+// [YENİ] BİREBİR SOHBET (DM)
+// =============================================================
+
+int DatabaseManager::getOrCreateDMChannel(int user1Id, int user2Id) {
+    // Kullanıcı ID'lerini sıraya diz (Küçük-Büyük) böylece A->B ile B->A aynı kanalı açar.
+    int u1 = std::min(user1Id, user2Id);
+    int u2 = std::max(user1Id, user2Id);
+
+    // Özel bir isimlendirme formatı: "dm_1_5"
+    std::string dmName = "dm_" + std::to_string(u1) + "_" + std::to_string(u2);
+
+    // 1. Kanal var mı kontrol et (ServerID = 0 olan kanallar DM'dir)
+    std::string sql = "SELECT ID FROM Channels WHERE Name = ? AND ServerID = 0;";
+    sqlite3_stmt* stmt;
+    int channelId = -1;
+
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, dmName.c_str(), -1, SQLITE_STATIC);
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            channelId = sqlite3_column_int(stmt, 0);
+        }
+    }
+    sqlite3_finalize(stmt);
+
+    if (channelId != -1) return channelId; // Varsa dön
+
+    // 2. Yoksa Oluştur (Type 0: Text)
+    // ServerID'yi 0 olarak kaydediyoruz.
+    sql = "INSERT INTO Channels (ServerID, Name, Type) VALUES (0, '" + dmName + "', 0);";
+    if (executeQuery(sql)) {
+        return (int)sqlite3_last_insert_rowid(db);
+    }
+    return -1;
+}

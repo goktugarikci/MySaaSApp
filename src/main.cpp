@@ -440,6 +440,135 @@ int main() {
         if (db.deleteKanbanCard(cardId)) return crow::response(200, "Kart silindi");
         return crow::response(500);
             });
+    // =============================================================
+    // 8. BİREBİR SOHBET (DM)
+    // =============================================================
+
+    // DM Başlat veya Getir
+    CROW_ROUTE(app, "/api/dm/<int>").methods("POST"_method)
+        ([&db](const crow::request& req, int targetUserId) {
+        int myId = 1; // Token'dan alınacak
+        int channelId = db.getOrCreateDMChannel(myId, targetUserId);
+
+        if (channelId > 0) {
+            crow::json::wvalue res;
+            res["channel_id"] = channelId;
+            return crow::response(200, res);
+        }
+        return crow::response(500, "DM olusturulamadi");
+            });
+
+    // =============================================================
+    // 9. GÖRÜNTÜLÜ SOHBET / EKRAN PAYLAŞIMI (WebRTC Signaling)
+    // =============================================================
+
+    // Bu endpoint, görüntülü görüşme başlatmak isteyenlerin birbirini bulmasını sağlar.
+    // İstemci (Front-end) buraya bağlanıp SDP ve ICE Candidate bilgilerini takas eder.
+
+    CROW_WEBSOCKET_ROUTE(app, "/ws/call")
+        .onopen([&](crow::websocket::connection& conn) {
+        // Kullanıcı bağlandı, bir havuza ekle
+            })
+        .onmessage([&](crow::websocket::connection& conn, const std::string& data, bool is_binary) {
+        // Gelen WebRTC sinyal verisini (Offer/Answer/Candidate) 
+        // hedef kullanıcıya ilet.
+        auto msg = crow::json::load(data);
+        // Örnek: { "target_user_id": 5, "type": "offer", "sdp": "..." }
+
+        // Hedef kullanıcıyı bul ve ona gönder...
+            });
+    // =============================================================
+    // 8. SİSTEM YÖNETİCİSİ (ADMIN) API
+    // =============================================================
+
+    // İstatistikler
+    CROW_ROUTE(app, "/api/admin/stats")
+        ([&db]() {
+        // TODO: IsSystemAdmin kontrolü yapılmalı
+        auto stats = db.getSystemStats();
+        crow::json::wvalue res;
+        res["users"] = stats.user_count;
+        res["servers"] = stats.server_count;
+        res["messages"] = stats.message_count;
+        return crow::response(200, res);
+            });
+
+    // Kullanıcıları Listele
+    CROW_ROUTE(app, "/api/admin/users")
+        ([&db]() {
+        auto users = db.getAllUsers();
+        crow::json::wvalue res;
+        for (size_t i = 0; i < users.size(); i++) res[i] = users[i].toJson();
+        return crow::response(200, res);
+            });
+
+    // Kullanıcı Banla
+    CROW_ROUTE(app, "/api/admin/users/<int>/ban").methods("POST"_method)
+        ([&db](int userId) {
+        if (db.banUser(userId)) return crow::response(200, "Kullanici yasaklandi");
+        return crow::response(500);
+            });
+
+    // =============================================================
+    // 9. ÜYE VE ROL YÖNETİMİ API
+    // =============================================================
+
+    // Davet Kodu ile Katıl
+    CROW_ROUTE(app, "/api/servers/join").methods("POST"_method)
+        ([&db](const crow::request& req) {
+        auto x = crow::json::load(req.body);
+        if (!x || !x.has("invite_code")) return crow::response(400);
+
+        int myId = 1; // Token'dan alınmalı
+        if (db.joinServerByCode(myId, x["invite_code"].s()))
+            return crow::response(200, "Sunucuya katildiniz");
+        return crow::response(400, "Gecersiz kod veya zaten uyesiniz");
+            });
+
+    // Üye At (Kick)
+    CROW_ROUTE(app, "/api/servers/<int>/members/<int>").methods("DELETE"_method)
+        ([&db](int serverId, int userId) {
+        // TODO: Yetki kontrolü (Requester Owner mı?)
+        if (db.kickMember(serverId, userId)) return crow::response(200, "Uye atildi");
+        return crow::response(500);
+            });
+
+    // Rolleri Listele
+    CROW_ROUTE(app, "/api/servers/<int>/roles")
+        ([&db](int serverId) {
+        auto roles = db.getServerRoles(serverId);
+        crow::json::wvalue res;
+        for (size_t i = 0; i < roles.size(); i++) res[i] = roles[i].toJson();
+        return crow::response(200, res);
+            });
+
+    // Yeni Rol Oluştur
+    CROW_ROUTE(app, "/api/servers/<int>/roles").methods("POST"_method)
+        ([&db](const crow::request& req, int serverId) {
+        auto x = crow::json::load(req.body);
+        if (db.createRole(serverId, x["name"].s(), x["hierarchy"].i(), x["permissions"].i()))
+            return crow::response(201, "Rol olusturuldu");
+        return crow::response(500);
+            });
+
+    // =============================================================
+    // 10. BİREBİR SOHBET (DM) API
+    // =============================================================
+
+    // DM Kanalı Aç veya Getir
+    CROW_ROUTE(app, "/api/dm/<int>").methods("POST"_method)
+        ([&db](const crow::request& req, int targetUserId) {
+        int myId = 1; // Token'dan alınmalı
+        int channelId = db.getOrCreateDMChannel(myId, targetUserId);
+
+        if (channelId > 0) {
+            crow::json::wvalue res;
+            res["channel_id"] = channelId;
+            return crow::response(200, res);
+        }
+        return crow::response(500, "DM acilamadi");
+            });
+
 
     std::cout << "MySaaSApp Baslatildi: http://localhost:8080" << std::endl;
     app.port(8080).multithreaded().run();
