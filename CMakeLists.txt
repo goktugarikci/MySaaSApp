@@ -9,6 +9,7 @@ find_package(Crow CONFIG REQUIRED)
 find_package(LibDataChannel CONFIG REQUIRED)
 find_package(unofficial-sqlite3 CONFIG REQUIRED)
 find_package(unofficial-argon2 CONFIG REQUIRED)
+find_package(cpr CONFIG REQUIRED) # YENİ: Google Auth için
 
 # 2. Kaynak Dosyaları Tanımla
 # Dosyaların "src/" klasörü altında olduğunu belirtiyoruz.
@@ -19,7 +20,7 @@ add_executable(MySaaSApp
     src/db/DatabaseManager.cpp 
     src/db/DatabaseManager.h
     src/utils/Security.cpp
-    src/utils/Security.h "src/utils/FileManager.h" "src/utils/FileManager.cpp" "src/models/User.h" "src/models/Server.h" "src/models/Message.H" "src/models/Kanban.h")
+    src/utils/Security.h "src/utils/FileManager.h" "src/utils/FileManager.cpp" "src/models/User.h" "src/models/Server.h" "src/models/Message.h" "src/models/Kanban.h" "src/models/Requests.h")
 
 # 3. Kütüphaneleri Bağla (Link)
 target_link_libraries(MySaaSApp PRIVATE
@@ -28,6 +29,7 @@ target_link_libraries(MySaaSApp PRIVATE
     Crow::Crow
     unofficial::sqlite3::sqlite3
     unofficial::argon2::libargon2
+    cpr::cpr # YENİ
 )
 
 # C++ Standardını Belirle (C++17 veya 20)
