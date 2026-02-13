@@ -11,6 +11,7 @@ find_package(unofficial-sqlite3 CONFIG REQUIRED)
 find_package(unofficial-argon2 CONFIG REQUIRED)
 find_package(cpr CONFIG REQUIRED) # YENİ: Google Auth için
 
+
 # 2. Kaynak Dosyaları Tanımla
 # Dosyaların "src/" klasörü altında olduğunu belirtiyoruz.
 add_executable(MySaaSApp
@@ -20,12 +21,21 @@ add_executable(MySaaSApp
     src/db/DatabaseManager.cpp 
     src/db/DatabaseManager.h
     src/utils/Security.cpp
-    src/utils/Security.h "src/utils/FileManager.h" "src/utils/FileManager.cpp" "src/models/User.h" "src/models/Server.h" "src/models/Message.h" "src/models/Kanban.h" "src/models/Requests.h" "src/models/Payment.h")
+    src/utils/Security.h 
+    src/utils/FileManager.h 
+    src/utils/FileManager.cpp
+    src/models/User.h 
+    src/models/Server.h
+    src/models/Message.h
+    src/models/Kanban.h 
+    src/models/Requests.h
+    src/models/Payment.h "src/AdminUI.cpp")
 
 # 3. Kütüphaneleri Bağla (Link)
 target_link_libraries(MySaaSApp PRIVATE
     fmt::fmt
     nlohmann_json::nlohmann_json
+    LibDataChannel::LibDataChannel
     Crow::Crow
     unofficial::sqlite3::sqlite3
     unofficial::argon2::libargon2
@@ -34,3 +44,17 @@ target_link_libraries(MySaaSApp PRIVATE
 
 # C++ Standardını Belirle (C++17 veya 20)
 target_compile_features(MySaaSApp PRIVATE cxx_std_17)
+
+
+add_executable(AdminUI src/AdminUI.cpp)
+
+# ImGui, GLFW ve OpenGL kütüphanelerini SADECE admin paneline bağlıyoruz
+find_package(imgui CONFIG REQUIRED)
+find_package(glfw3 CONFIG REQUIRED)
+find_package(OpenGL REQUIRED)
+
+target_link_libraries(AdminUI PRIVATE 
+    imgui::imgui 
+    glfw 
+    OpenGL::GL
+)

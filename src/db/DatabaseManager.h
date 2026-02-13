@@ -13,15 +13,13 @@
 #include "../models/Requests.h"
 
 // --- YARDIMCI YAPILAR (Global Scope) ---
-// Hata Çözümü: Bu yapıların sınıf dışında olması .cpp dosyasındaki bildirim çakışmalarını önler.
-
 struct UserReport {
-    int id;
-    int reporter_id;
-    int content_id;
-    std::string type; // 'MESSAGE', 'USER'
+    std::string id;
+    std::string reporter_id;
+    std::string content_id;
+    std::string type;
     std::string reason;
-    std::string status; // 'OPEN', 'RESOLVED'
+    std::string status;
 };
 
 struct SystemStats {
@@ -31,7 +29,6 @@ struct SystemStats {
 };
 
 // --- DATABASE MANAGER SINIFI ---
-
 class DatabaseManager {
 private:
     sqlite3* db;
@@ -42,7 +39,6 @@ public:
     DatabaseManager(const std::string& path);
     ~DatabaseManager();
 
-    // Temel İşlemler
     bool open();
     void close();
     bool initTables();
@@ -53,75 +49,74 @@ public:
     bool createUser(const std::string& name, const std::string& email, const std::string& rawPassword, bool isAdmin = false);
     bool loginUser(const std::string& email, const std::string& rawPassword);
     std::optional<User> getUser(const std::string& email);
-    std::optional<User> getUserById(int id);
-    bool updateUserAvatar(int userId, const std::string& avatarUrl);
-    bool updateUserDetails(int userId, const std::string& name, const std::string& status);
-    bool deleteUser(int userId);
-    bool isSystemAdmin(int userId);
+    std::optional<User> getUserById(std::string id);
+    bool updateUserAvatar(std::string userId, const std::string& avatarUrl);
+    bool updateUserDetails(std::string userId, const std::string& name, const std::string& status);
+    bool deleteUser(std::string userId);
+    bool isSystemAdmin(std::string userId);
 
     // --- SUNUCU YÖNETİMİ ---
-    int createServer(const std::string& name, int ownerId);
-    bool updateServer(int serverId, const std::string& name, const std::string& iconUrl);
-    bool deleteServer(int serverId);
-    std::vector<Server> getUserServers(int userId);
-    std::optional<Server> getServerDetails(int serverId);
-    bool addMemberToServer(int serverId, int userId);
-    bool removeMemberFromServer(int serverId, int userId);
-    bool joinServerByCode(int userId, const std::string& inviteCode);
-    bool kickMember(int serverId, int userId);
+    std::string createServer(const std::string& name, std::string ownerId);
+    bool updateServer(std::string serverId, const std::string& name, const std::string& iconUrl);
+    bool deleteServer(std::string serverId);
+    std::vector<Server> getUserServers(std::string userId);
+    std::optional<Server> getServerDetails(std::string serverId);
+    bool addMemberToServer(std::string serverId, std::string userId);
+    bool removeMemberFromServer(std::string serverId, std::string userId);
+    bool joinServerByCode(std::string userId, const std::string& inviteCode);
+    bool kickMember(std::string serverId, std::string userId);
 
     // --- ROL VE YETKİLER ---
-    bool createRole(int serverId, std::string roleName, int hierarchy, int permissions);
-    std::vector<Role> getServerRoles(int serverId);
-    bool assignRole(int serverId, int userId, int roleId);
+    bool createRole(std::string serverId, std::string roleName, int hierarchy, int permissions);
+    std::vector<Role> getServerRoles(std::string serverId);
+    bool assignRole(std::string serverId, std::string userId, std::string roleId);
 
     // --- KANAL YÖNETİMİ ---
-    bool createChannel(int serverId, std::string name, int type); // 0:Text, 1:Voice, 2:Video, 3:Kanban
-    bool updateChannel(int channelId, const std::string& name);
-    bool deleteChannel(int channelId);
-    std::vector<Channel> getServerChannels(int serverId);
-    int getServerKanbanCount(int serverId);
+    bool createChannel(std::string serverId, std::string name, int type);
+    bool updateChannel(std::string channelId, const std::string& name);
+    bool deleteChannel(std::string channelId);
+    std::vector<Channel> getServerChannels(std::string serverId);
+    int getServerKanbanCount(std::string serverId);
 
     // --- MESAJLAŞMA VE DM ---
-    bool sendMessage(int channelId, int senderId, const std::string& content, const std::string& attachmentUrl = "");
-    bool updateMessage(int messageId, const std::string& newContent);
-    bool deleteMessage(int messageId);
-    std::vector<Message> getChannelMessages(int channelId, int limit = 50);
-    int getOrCreateDMChannel(int user1Id, int user2Id); // Birebir Sohbet
+    bool sendMessage(std::string channelId, std::string senderId, const std::string& content, const std::string& attachmentUrl = "");
+    bool updateMessage(std::string messageId, const std::string& newContent);
+    bool deleteMessage(std::string messageId);
+    std::vector<Message> getChannelMessages(std::string channelId, int limit = 50);
+    std::string getOrCreateDMChannel(std::string user1Id, std::string user2Id);
 
     // --- KANBAN SİSTEMİ ---
-    // Hata Çözümü: KanbanListWithCards ismi KanbanList olarak güncellendi.
-    std::vector<KanbanList> getKanbanBoard(int channelId);
-    bool createKanbanList(int boardChannelId, std::string title);
-    bool updateKanbanList(int listId, const std::string& title, int position);
-    bool deleteKanbanList(int listId);
-    bool createKanbanCard(int listId, std::string title, std::string desc, int priority);
-    bool updateKanbanCard(int cardId, std::string title, std::string description, int priority);
-    bool deleteKanbanCard(int cardId);
-    bool moveCard(int cardId, int newListId, int newPosition);
+    std::vector<KanbanList> getKanbanBoard(std::string channelId);
+    bool createKanbanList(std::string boardChannelId, std::string title);
+    bool updateKanbanList(std::string listId, const std::string& title, int position);
+    bool deleteKanbanList(std::string listId);
+    bool createKanbanCard(std::string listId, std::string title, std::string desc, int priority);
+    bool updateKanbanCard(std::string cardId, std::string title, std::string description, int priority);
+    bool deleteKanbanCard(std::string cardId);
+    bool moveCard(std::string cardId, std::string newListId, int newPosition);
 
     // --- ARKADAŞLIK SİSTEMİ ---
-    bool sendFriendRequest(int myId, int targetUserId);
-    bool acceptFriendRequest(int requesterId, int myId);
-    bool rejectOrRemoveFriend(int otherUserId, int myId);
-    std::vector<FriendRequest> getPendingRequests(int myId);
-    std::vector<User> getFriendsList(int myId);
+    bool sendFriendRequest(std::string myId, std::string targetUserId);
+    bool acceptFriendRequest(std::string requesterId, std::string myId);
+    bool rejectOrRemoveFriend(std::string otherUserId, std::string myId);
+    std::vector<FriendRequest> getPendingRequests(std::string myId);
+    std::vector<User> getFriendsList(std::string myId);
 
     // --- ÖDEME SİSTEMİ ---
-    bool createPaymentRecord(int userId, const std::string& providerId, float amount, const std::string& currency);
+    bool createPaymentRecord(std::string userId, const std::string& providerId, float amount, const std::string& currency);
     bool updatePaymentStatus(const std::string& providerId, const std::string& status);
-    std::vector<PaymentTransaction> getUserPayments(int userId);
+    std::vector<PaymentTransaction> getUserPayments(std::string userId);
 
     // --- RAPORLAMA VE DENETİM ---
-    bool createReport(int reporterId, int contentId, const std::string& type, const std::string& reason);
+    bool createReport(std::string reporterId, std::string contentId, const std::string& type, const std::string& reason);
     std::vector<UserReport> getOpenReports();
-    bool resolveReport(int reportId);
+    bool resolveReport(std::string reportId);
 
     // --- YÖNETİCİ VE ABONELİK YARDIMCILARI ---
-    SystemStats getSystemStats(); // Admin istatistikleri
+    SystemStats getSystemStats();
     std::vector<User> getAllUsers();
-    bool banUser(int userId);
-    bool isSubscriptionActive(int userId);
-    int getUserServerCount(int userId);
-    bool updateUserSubscription(int userId, int level, int durationDays);
+    bool banUser(std::string userId);
+    bool isSubscriptionActive(std::string userId);
+    int getUserServerCount(std::string userId);
+    bool updateUserSubscription(std::string userId, int level, int durationDays);
 };

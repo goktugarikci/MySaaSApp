@@ -8,6 +8,15 @@
     "nlohmann-json",
     "libdatachannel",
     "argon2",
-    "cpr"
+    "cpr",
+    "glfw3",
+    "opengl",
+    {
+      "name": "imgui",
+      "features": [
+        "glfw-binding",
+        "opengl3-binding"
+      ]
+    }
   ]
 }

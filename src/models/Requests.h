@@ -2,6 +2,23 @@
 #include <string>
 #include "crow.h"
 
+// Arkadaşlık İsteği Modeli
+struct FriendRequest {
+    std::string requester_id;
+    std::string requester_name;
+    std::string requester_avatar;
+    std::string sent_at;
+
+    crow::json::wvalue toJson() const {
+        crow::json::wvalue json;
+        json["requester_id"] = requester_id;
+        json["requester_name"] = requester_name;
+        json["requester_avatar"] = requester_avatar;
+        json["sent_at"] = sent_at;
+        return json;
+    }
+};
+
 // Kayıt Olma İsteği (POST /api/auth/register)
 struct RegisterRequest {
     std::string name;

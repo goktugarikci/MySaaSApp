@@ -3,8 +3,8 @@
 #include "crow.h"
 
 struct PaymentTransaction {
-    int id;
-    int user_id;
+    std::string id;
+    std::string user_id;
     std::string provider_payment_id; // Stripe veya Iyzico'dan dönen işlem ID'si
     float amount;
     std::string currency;
