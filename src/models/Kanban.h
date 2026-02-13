@@ -5,8 +5,8 @@
 
 // Kart Yapısı
 struct KanbanCard {
-    int id;
-    int list_id;
+    std::string id;
+    std::string list_id;
     std::string title;
     std::string description;
     int priority;
@@ -26,7 +26,7 @@ struct KanbanCard {
 
 // Liste (Sütun) Yapısı - (Eski adı KanbanListWithCards idi)
 struct KanbanList {
-    int id;
+    std::string id;
     std::string title;
     int position;
     std::vector<KanbanCard> cards; // Kartları içinde barındırır

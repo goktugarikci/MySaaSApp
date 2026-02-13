@@ -3,9 +3,9 @@
 #include "crow.h"
 
 struct Message {
-    int id;
-    int channel_id;
-    int sender_id;
+    std::string id;
+    std::string channel_id;
+    std::string sender_id;
     std::string sender_name;
     std::string sender_avatar;
     std::string content;

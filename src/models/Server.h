@@ -4,8 +4,8 @@
 #include "crow.h"
 
 struct Role {
-    int id;
-    int server_id;
+    std::string id;
+    std::string server_id;
     std::string name;
     std::string color;
     int hierarchy;
@@ -23,8 +23,8 @@ struct Role {
 };
 
 struct Channel {
-    int id;
-    int server_id;
+    std::string id;
+    std::string server_id;
     std::string name;
     int type; // 0: Text, 1: Voice, 2: Video, 3: Kanban
     bool is_private;
@@ -41,8 +41,8 @@ struct Channel {
 };
 
 struct Server {
-    int id;
-    int owner_id;
+    std::string id;
+    std::string owner_id;
     std::string name;
     std::string invite_code;
     std::string icon_url;

@@ -10,7 +10,7 @@ enum class UserRole {
 };
 
 struct User {
-    int id;
+    std::string id;
     std::string name;
     std::string email;
     std::string password_hash; // JSON'a gitmemeli (Güvenlik)
@@ -41,19 +41,3 @@ struct User {
     }
 };
 
-// Arkadaşlık İsteği Modeli
-struct FriendRequest {
-    int requester_id;
-    std::string requester_name;
-    std::string requester_avatar;
-    std::string sent_at;
-
-    crow::json::wvalue toJson() const {
-        crow::json::wvalue json;
-        json["requester_id"] = requester_id;
-        json["requester_name"] = requester_name;
-        json["requester_avatar"] = requester_avatar;
-        json["sent_at"] = sent_at;
-        return json;
-    }
-};
