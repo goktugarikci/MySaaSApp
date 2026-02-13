@@ -510,23 +510,6 @@ int main() {
         if (db.deleteKanbanCard(cardId)) return crow::response(200, "Kart silindi");
         return crow::response(500);
             });
-    // =============================================================
-    // 8. BİREBİR SOHBET (DM)
-    // =============================================================
-
-    // DM Başlat veya Getir
-    CROW_ROUTE(app, "/api/dm/<int>").methods("POST"_method)
-        ([&db](const crow::request& req, int targetUserId) {
-        int myId = 1; // Token'dan alınacak
-        int channelId = db.getOrCreateDMChannel(myId, targetUserId);
-
-        if (channelId > 0) {
-            crow::json::wvalue res;
-            res["channel_id"] = channelId;
-            return crow::response(200, res);
-        }
-        return crow::response(500, "DM olusturulamadi");
-            });
 
     // =============================================================
     // 9. GÖRÜNTÜLÜ SOHBET / EKRAN PAYLAŞIMI (WebRTC Signaling)
