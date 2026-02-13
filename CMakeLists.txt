@@ -1,60 +1,45 @@
 ﻿cmake_minimum_required(VERSION 3.15)
+project(MySaaSApp VERSION 1.0.0 LANGUAGES CXX)
 
-project(MySaaSApp)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# 1. Paketleri Bul (vcpkg entegrasyonu)
-find_package(fmt CONFIG REQUIRED)
-find_package(nlohmann_json CONFIG REQUIRED)
+# ==========================================================
+# GEREKLİ KÜTÜPHANELERİ BUL
+# ==========================================================
 find_package(Crow CONFIG REQUIRED)
-find_package(LibDataChannel CONFIG REQUIRED)
 find_package(unofficial-sqlite3 CONFIG REQUIRED)
-find_package(unofficial-argon2 CONFIG REQUIRED)
-find_package(cpr CONFIG REQUIRED) # YENİ: Google Auth için
-
-
-# 2. Kaynak Dosyaları Tanımla
-# Dosyaların "src/" klasörü altında olduğunu belirtiyoruz.
-add_executable(MySaaSApp
-    src/main.cpp
-    src/main.h
-    # Eğer bu dosyalar henüz yoksa aşağıdaki satırın başına # koyarak yorum satırı yap!
-    src/db/DatabaseManager.cpp 
-    src/db/DatabaseManager.h
-    src/utils/Security.cpp
-    src/utils/Security.h 
-    src/utils/FileManager.h 
-    src/utils/FileManager.cpp
-    src/models/User.h 
-    src/models/Server.h
-    src/models/Message.h
-    src/models/Kanban.h 
-    src/models/Requests.h
-    src/models/Payment.h "src/AdminUI.cpp")
-
-# 3. Kütüphaneleri Bağla (Link)
-target_link_libraries(MySaaSApp PRIVATE
-    fmt::fmt
-    nlohmann_json::nlohmann_json
-    LibDataChannel::LibDataChannel
-    Crow::Crow
-    unofficial::sqlite3::sqlite3
-    unofficial::argon2::libargon2
-    cpr::cpr # YENİ
-)
-
-# C++ Standardını Belirle (C++17 veya 20)
-target_compile_features(MySaaSApp PRIVATE cxx_std_17)
-
-
-add_executable(AdminUI src/AdminUI.cpp)
-
-# ImGui, GLFW ve OpenGL kütüphanelerini SADECE admin paneline bağlıyoruz
+find_package(cpr CONFIG REQUIRED)
 find_package(imgui CONFIG REQUIRED)
 find_package(glfw3 CONFIG REQUIRED)
 find_package(OpenGL REQUIRED)
+find_package(unofficial-argon2 CONFIG REQUIRED)
 
+# ==========================================================
+# 1. PROGRAM: BACKEND SUNUCUSU (MySaaSApp.exe)
+# ==========================================================
+# DİKKAT: Burada 'file(GLOB...)' veya 'AdminUI.cpp' YOKTUR!
+add_executable(MySaaSApp 
+    src/main.cpp 
+    src/db/DatabaseManager.cpp 
+    src/utils/Security.cpp 
+    src/utils/FileManager.cpp
+)
+target_link_libraries(MySaaSApp PRIVATE 
+    Crow::Crow 
+    unofficial::sqlite3::sqlite3
+    cpr::cpr
+    unofficial::argon2::libargon2
+)
+
+# ==========================================================
+# 2. PROGRAM: SÜPER ADMIN ARAYÜZÜ (AdminUI.exe)
+# ==========================================================
+add_executable(AdminUI 
+    src/AdminUI.cpp
+)
 target_link_libraries(AdminUI PRIVATE 
-    imgui::imgui 
-    glfw 
+    imgui::imgui
+    glfw
     OpenGL::GL
 )
