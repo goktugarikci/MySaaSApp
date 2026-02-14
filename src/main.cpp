@@ -58,18 +58,63 @@ int main() {
         return crow::response(400);
             });
 
-    CROW_ROUTE(app, "/api/auth/login").methods("POST"_method)
+    // ==========================================================
+    // ÇIKIŞ YAP (LOGOUT) - Yeni Eklendi
+    // ==========================================================
+    CROW_ROUTE(app, "/api/auth/logout").methods(crow::HTTPMethod::POST)
         ([&db](const crow::request& req) {
-        auto x = crow::json::load(req.body);
-        if (!x || !x.has("email") || !x.has("password")) return crow::response(400);
-        if (db.loginUser(std::string(x["email"].s()), std::string(x["password"].s()))) {
-            auto user = db.getUser(std::string(x["email"].s()));
-            if (!user) return crow::response(500);
-            crow::json::wvalue res = user->toJson();
-            res["token"] = "mock-jwt-token-" + user->id;
+        // 1. İsteği yapan kullanıcının kimliğini Token'dan doğrula
+        auto authHeader = req.get_header_value("Authorization");
+        if (authHeader.empty() || authHeader.find("mock-jwt-token-") != 0) {
+            return crow::response(401, "{\"error\": \"Yetkisiz islem\"}");
+        }
+
+        std::string userId = authHeader.substr(15);
+        if (userId.empty()) return crow::response(401, "{\"error\": \"Gecersiz token\"}");
+
+        // ---> YENİ EKLENEN KOD: Kullanıcıyı "Offline" yap <---
+        if (db.updateUserStatus(userId, "Offline")) {
+            crow::json::wvalue res;
+            res["success"] = true;
+            res["message"] = "Basariyla cikis yapildi. Durum: Offline";
             return crow::response(200, res);
         }
-        return crow::response(401, "Hatali giris");
+        else {
+            return crow::response(500, "{\"error\": \"Durum guncellenemedi\"}");
+        }
+            });
+
+    // ==========================================================
+        // GİRİŞ YAP (LOGIN) - Güncellenmiş Hal
+        // ==========================================================
+    CROW_ROUTE(app, "/api/auth/login").methods(crow::HTTPMethod::POST)
+        ([&db](const crow::request& req) {
+        auto body = crow::json::load(req.body);
+        if (!body || !body.has("email") || !body.has("password")) {
+            return crow::response(400, "{\"error\": \"Eksik bilgi\"}");
+        }
+
+        std::string email = body["email"].s();
+        std::string password = body["password"].s();
+
+        // 1. Veritabanından kullanıcıyı şifresiyle doğrula
+        std::string userId = db.authenticateUser(email, password);
+
+        if (!userId.empty()) {
+            // BAŞARILI GİRİŞ!
+            // ---> YENİ EKLENEN KOD: Kullanıcıyı "Online" yap <---
+            db.updateUserStatus(userId, "Online");
+
+            // Token oluştur ve gönder (Mevcut kodunuz)
+            crow::json::wvalue res;
+            res["token"] = "mock-jwt-token-" + userId;
+            res["user_id"] = userId;
+            res["message"] = "Giris basarili. Durum: Online";
+            return crow::response(200, res);
+        }
+        else {
+            return crow::response(401, "{\"error\": \"Gecersiz e-posta veya sifre\"}");
+        }
             });
 
     CROW_ROUTE(app, "/api/auth/google/url")
@@ -577,6 +622,42 @@ int main() {
         if (db.createReport(getUserIdFromHeader(req), std::string(x["content_id"].s()), std::string(x["type"].s()), std::string(x["reason"].s())))
             return crow::response(201);
         return crow::response(500);
+            });
+
+    // ==========================================================
+    // KULLANICI DURUMU GÜNCELLEME (Online / Offline)
+    // POST /api/user/status
+    // ==========================================================
+    CROW_ROUTE(app, "/api/user/status").methods(crow::HTTPMethod::POST)
+        ([&db](const crow::request& req) {
+        // 1. Yetki Kontrolü ve ID Çıkarımı
+        auto authHeader = req.get_header_value("Authorization");
+        if (authHeader.empty() || authHeader.find("mock-jwt-token-") != 0) {
+            return crow::response(401, "{\"error\": \"Yetkisiz erisim\"}");
+        }
+
+        // Token'dan Kullanıcı ID'sini ayıkla
+        std::string userId = authHeader.substr(15);
+        if (userId.empty()) return crow::response(401, "{\"error\": \"Gecersiz token\"}");
+
+        // 2. JSON Gövdesini (Body) Oku
+        auto body = crow::json::load(req.body);
+        if (!body || !body.has("status")) {
+            return crow::response(400, "{\"error\": \"Eksik parametre: 'status' alani gerekli (Online/Offline/Away)\"}");
+        }
+
+        std::string newStatus = body["status"].s();
+
+        // 3. Veritabanını Güncelle
+        if (db.updateUserStatus(userId, newStatus)) {
+            crow::json::wvalue res;
+            res["success"] = true;
+            res["message"] = "Durum basariyla guncellendi: " + newStatus;
+            return crow::response(200, res);
+        }
+        else {
+            return crow::response(500, "{\"error\": \"Veritabani hatasi veya gecersiz durum degeri\"}");
+        }
             });
 
     std::cout << "MySaaSApp (Hatasiz & Kararli Surum) Basariyla Calisiyor: http://localhost:8080" << std::endl;

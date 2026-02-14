@@ -54,6 +54,10 @@ public:
     bool updateUserDetails(std::string userId, const std::string& name, const std::string& status);
     bool deleteUser(std::string userId);
     bool isSystemAdmin(std::string userId);
+    bool updateUserStatus(const std::string& userId, const std::string& newStatus);
+
+    // Kullanıcı girişini doğrular, başarılıysa ID'yi döndürür, başarısızsa boş string döndürür.
+    std::string authenticateUser(const std::string& email, const std::string& password);
 
     // --- SUNUCU YÖNETİMİ ---
     std::string createServer(const std::string& name, std::string ownerId);

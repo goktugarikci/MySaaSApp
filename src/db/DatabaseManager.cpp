@@ -634,6 +634,57 @@ std::vector<UserReport> DatabaseManager::getOpenReports() {
     return reports;
 }
 
+std::string DatabaseManager::authenticateUser(const std::string& email, const std::string& password) {
+    std::string query = "SELECT id, password FROM users WHERE email = ?;";
+    sqlite3_stmt* stmt;
+    std::string userId = "";
+    std::string dbPasswordHash = "";
+
+    if (sqlite3_prepare_v2(db, query.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, email.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            userId = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+            dbPasswordHash = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        }
+        sqlite3_finalize(stmt);
+    }
+
+    // 1. KONTROL: Kullanıcı DB'de var mı?
+    if (userId.empty()) {
+        std::cout << "[GIRIS HATASI] Veritabaninda bu e-posta kayitli degil: " << email << std::endl;
+        return "";
+    }
+
+    // 2. KONTROL: Şifre (Argon2 Hash) eşleşiyor mu?
+    if (Security::verifyPassword(password, dbPasswordHash)) {
+        std::cout << "[GIRIS BASARILI] Kullanici dogrulandi: " << email << std::endl;
+        return userId;
+    }
+    else {
+        std::cout << "[GIRIS HATASI] Yanlis sifre girildi! E-posta: " << email << std::endl;
+        return "";
+    }
+}
+
 bool DatabaseManager::resolveReport(std::string reportId) {
     return executeQuery("UPDATE Reports SET Status='RESOLVED' WHERE ID='" + reportId + "'");
+}
+bool DatabaseManager::updateUserStatus(const std::string& userId, const std::string& newStatus) {
+    // Sadece güvenlik için geçerli statülere izin veriyoruz
+    if (newStatus != "Online" && newStatus != "Offline" && newStatus != "Away") {
+        return false;
+    }
+
+    std::string query = "UPDATE users SET status = ? WHERE id = ?;";
+    sqlite3_stmt* stmt;
+
+    if (sqlite3_prepare_v2(db, query.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, newStatus.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, userId.c_str(), -1, SQLITE_TRANSIENT);
+
+        bool success = (sqlite3_step(stmt) == SQLITE_DONE);
+        sqlite3_finalize(stmt);
+        return success;
+    }
+    return false;
 }
