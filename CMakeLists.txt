@@ -42,4 +42,6 @@ target_link_libraries(AdminUI PRIVATE
     imgui::imgui
     glfw
     OpenGL::GL
+    cpr::cpr    # <-- EKLENDİ (API İstekleri için)
+    Crow::Crow
 )

