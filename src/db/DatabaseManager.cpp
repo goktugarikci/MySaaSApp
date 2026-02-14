@@ -634,8 +634,13 @@ std::vector<UserReport> DatabaseManager::getOpenReports() {
     return reports;
 }
 
+bool DatabaseManager::resolveReport(std::string reportId) {
+    return executeQuery("UPDATE Reports SET Status='RESOLVED' WHERE ID='" + reportId + "'");
+}
+
 std::string DatabaseManager::authenticateUser(const std::string& email, const std::string& password) {
-    std::string query = "SELECT id, password FROM users WHERE email = ?;";
+    // HATA DÜZELTİLDİ: Sütun adı 'password' değil, 'PasswordHash' yapıldı. Tablo adı 'Users' yapıldı.
+    std::string query = "SELECT ID, PasswordHash FROM Users WHERE Email = ?;";
     sqlite3_stmt* stmt;
     std::string userId = "";
     std::string dbPasswordHash = "";
@@ -649,13 +654,13 @@ std::string DatabaseManager::authenticateUser(const std::string& email, const st
         sqlite3_finalize(stmt);
     }
 
-    // 1. KONTROL: Kullanıcı DB'de var mı?
+    // 1. KONTROL
     if (userId.empty()) {
-        std::cout << "[GIRIS HATASI] Veritabaninda bu e-posta kayitli degil: " << email << std::endl;
+        std::cout << "[GIRIS HATASI] Veritabaninda bu e-posta kayitli degil veya SQL Hatasi: " << email << std::endl;
         return "";
     }
 
-    // 2. KONTROL: Şifre (Argon2 Hash) eşleşiyor mu?
+    // 2. KONTROL (Argon2)
     if (Security::verifyPassword(password, dbPasswordHash)) {
         std::cout << "[GIRIS BASARILI] Kullanici dogrulandi: " << email << std::endl;
         return userId;
@@ -666,16 +671,13 @@ std::string DatabaseManager::authenticateUser(const std::string& email, const st
     }
 }
 
-bool DatabaseManager::resolveReport(std::string reportId) {
-    return executeQuery("UPDATE Reports SET Status='RESOLVED' WHERE ID='" + reportId + "'");
-}
 bool DatabaseManager::updateUserStatus(const std::string& userId, const std::string& newStatus) {
-    // Sadece güvenlik için geçerli statülere izin veriyoruz
     if (newStatus != "Online" && newStatus != "Offline" && newStatus != "Away") {
         return false;
     }
 
-    std::string query = "UPDATE users SET status = ? WHERE id = ?;";
+    // Tablo ve sütun adları garanti olması için 'Users', 'Status', 'ID' olarak düzeltildi
+    std::string query = "UPDATE Users SET Status = ? WHERE ID = ?;";
     sqlite3_stmt* stmt;
 
     if (sqlite3_prepare_v2(db, query.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
