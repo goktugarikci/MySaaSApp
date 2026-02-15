@@ -36,9 +36,9 @@ bool DatabaseManager::executeQuery(const std::string& sql) {
 }
 
 bool DatabaseManager::initTables() {
-    // Tümü TEXT PRIMARY KEY olarak güncellendi!
     std::string sql =
-        "CREATE TABLE IF NOT EXISTS Users (ID TEXT PRIMARY KEY, Name TEXT NOT NULL, Email TEXT UNIQUE NOT NULL, PasswordHash TEXT, GoogleID TEXT UNIQUE, IsSystemAdmin INTEGER DEFAULT 0, Status TEXT DEFAULT 'Offline', AvatarURL TEXT, SubscriptionLevel INTEGER DEFAULT 0, SubscriptionExpiresAt DATETIME, CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP);"
+        // DİKKAT: Aşağıdaki satıra "LastSeen DATETIME DEFAULT CURRENT_TIMESTAMP" eklendi!
+        "CREATE TABLE IF NOT EXISTS Users (ID TEXT PRIMARY KEY, Name TEXT NOT NULL, Email TEXT UNIQUE NOT NULL, PasswordHash TEXT, GoogleID TEXT UNIQUE, IsSystemAdmin INTEGER DEFAULT 0, Status TEXT DEFAULT 'Offline', AvatarURL TEXT, SubscriptionLevel INTEGER DEFAULT 0, SubscriptionExpiresAt DATETIME, LastSeen DATETIME DEFAULT CURRENT_TIMESTAMP, CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP);"
         "CREATE TABLE IF NOT EXISTS Servers (ID TEXT PRIMARY KEY, OwnerID TEXT, Name TEXT NOT NULL, InviteCode TEXT UNIQUE, IconURL TEXT, CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(OwnerID) REFERENCES Users(ID) ON DELETE CASCADE);"
         "CREATE TABLE IF NOT EXISTS Roles (ID TEXT PRIMARY KEY, ServerID TEXT, RoleName TEXT NOT NULL, Color TEXT DEFAULT '#FFFFFF', Hierarchy INTEGER DEFAULT 0, Permissions INTEGER DEFAULT 0, FOREIGN KEY(ServerID) REFERENCES Servers(ID) ON DELETE CASCADE);"
         "CREATE TABLE IF NOT EXISTS ServerMembers (ServerID TEXT, UserID TEXT, Nickname TEXT, JoinedAt DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (ServerID, UserID), FOREIGN KEY(ServerID) REFERENCES Servers(ID) ON DELETE CASCADE, FOREIGN KEY(UserID) REFERENCES Users(ID) ON DELETE CASCADE);"
@@ -669,6 +669,25 @@ std::string DatabaseManager::authenticateUser(const std::string& email, const st
         std::cout << "[GIRIS HATASI] Yanlis sifre girildi! E-posta: " << email << std::endl;
         return "";
     }
+}
+
+bool DatabaseManager::updateLastSeen(const std::string& userId) {
+    // Hem son görülme zamanını günceller hem de durumu Online yapar
+    std::string query = "UPDATE Users SET LastSeen = CURRENT_TIMESTAMP, Status = 'Online' WHERE ID = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, query.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, userId.c_str(), -1, SQLITE_TRANSIENT);
+        bool success = (sqlite3_step(stmt) == SQLITE_DONE);
+        sqlite3_finalize(stmt);
+        return success;
+    }
+    return false;
+}
+
+void DatabaseManager::markInactiveUsersOffline(int timeoutSeconds) {
+    // Belirtilen saniyeden daha uzun süredir "LastSeen" güncellemeyenleri Offline yapar
+    std::string sql = "UPDATE Users SET Status = 'Offline' WHERE Status = 'Online' AND (julianday('now') - julianday(LastSeen)) * 86400 > " + std::to_string(timeoutSeconds) + ";";
+    executeQuery(sql);
 }
 
 bool DatabaseManager::updateUserStatus(const std::string& userId, const std::string& newStatus) {
