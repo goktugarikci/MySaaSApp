@@ -56,6 +56,9 @@ public:
     bool isSystemAdmin(std::string userId);
     bool updateUserStatus(const std::string& userId, const std::string& newStatus);
 
+    bool updateLastSeen(const std::string& userId);
+    void markInactiveUsersOffline(int timeoutSeconds);
+
     // Kullanıcı girişini doğrular, başarılıysa ID'yi döndürür, başarısızsa boş string döndürür.
     std::string authenticateUser(const std::string& email, const std::string& password);
 
