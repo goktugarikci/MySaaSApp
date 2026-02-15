@@ -58,6 +58,7 @@ public:
 
     bool updateLastSeen(const std::string& userId);
     void markInactiveUsersOffline(int timeoutSeconds);
+    std::vector<User> searchUsers(const std::string& searchQuery);
 
     // Kullanıcı girişini doğrular, başarılıysa ID'yi döndürür, başarısızsa boş string döndürür.
     std::string authenticateUser(const std::string& email, const std::string& password);

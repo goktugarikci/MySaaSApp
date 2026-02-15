@@ -511,6 +511,30 @@ bool DatabaseManager::moveCard(std::string cardId, std::string newListId, int ne
 // ARKADAŞLIK
 // =============================================================
 
+std::vector<User> DatabaseManager::searchUsers(const std::string& searchQuery) {
+    std::vector<User> users;
+    // Güvenlik ve performans için limiti 20 ile sınırlandırıyoruz
+    std::string sql = "SELECT ID, Name, Email, Status, IsSystemAdmin, AvatarURL FROM Users WHERE Name LIKE ? OR Email LIKE ? LIMIT 20;";
+    sqlite3_stmt* stmt;
+
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+        // Arama teriminin başına ve sonuna % ekleyerek "içerenleri" bulmasını sağlıyoruz
+        std::string likeTerm = "%" + searchQuery + "%";
+
+        sqlite3_bind_text(stmt, 1, likeTerm.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, likeTerm.c_str(), -1, SQLITE_TRANSIENT);
+
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            users.push_back(User{
+                SAFE_TEXT(0), SAFE_TEXT(1), SAFE_TEXT(2), "",
+                sqlite3_column_int(stmt, 4) != 0, SAFE_TEXT(3), SAFE_TEXT(5), 0, "", ""
+                });
+        }
+    }
+    sqlite3_finalize(stmt);
+    return users;
+}
+
 bool DatabaseManager::sendFriendRequest(std::string myId, std::string targetUserId) {
     if (myId == targetUserId) return false;
     return executeQuery("INSERT INTO Friends (RequesterID, TargetID, Status) VALUES ('" + myId + "', '" + targetUserId + "', 0);");

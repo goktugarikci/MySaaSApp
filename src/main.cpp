@@ -639,6 +639,35 @@ int main() {
         return crow::response(500);
             });
 
+    // ==========================================================
+    // KULLANICI ARAMA VE FİLTRELEME
+    // GET /api/users/search?q=arananKelime
+    // ==========================================================
+    CROW_ROUTE(app, "/api/users/search").methods(crow::HTTPMethod::GET)
+        ([&db](const crow::request& req) {
+        // 1. Sadece giriş yapmış kullanıcılar arama yapabilir
+        if (!checkAuth(req, db)) return crow::response(401);
+
+        // 2. URL'den 'q' (query) parametresini al
+        char* qParam = req.url_params.get("q");
+        std::string query = qParam ? qParam : "";
+
+        // 3. Çok kısa aramaları engelle (Sunucu performansını korumak için)
+        if (query.length() < 3) {
+            return crow::response(400, "{\"error\": \"Arama terimi en az 3 karakter olmalidir.\"}");
+        }
+
+        // 4. Veritabanında ara ve JSON'a çevir
+        auto users = db.searchUsers(query);
+        crow::json::wvalue res;
+        for (size_t i = 0; i < users.size(); i++) {
+            res[i] = users[i].toJson();
+        }
+
+        return crow::response(200, res);
+            });
+
+
     // --- OTOMATİK HAYALET KULLANICI TEMİZLEYİCİ (BACKGROUND BOT) ---
     std::thread cleanupThread([&db]() {
         while (true) {
