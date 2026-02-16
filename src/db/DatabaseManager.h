@@ -74,6 +74,22 @@ public:
     bool joinServerByCode(std::string userId, const std::string& inviteCode);
     bool kickMember(std::string serverId, std::string userId);
 
+    // Tüm sunucuları getirir (Süper Admin Paneli İçin)
+    std::vector<Server> getAllServers();
+
+    // --- SUNUCU DAVET SİSTEMİ ---
+    bool sendServerInvite(std::string serverId, std::string inviterId, std::string inviteeId);
+    bool resolveServerInvite(std::string serverId, std::string inviteeId, bool accept);
+
+    // Gelen istekleri JSON formatında dönmek için basit yapı
+    struct ServerInviteDTO {
+        std::string server_id;
+        std::string server_name;
+        std::string inviter_name;
+        std::string created_at;
+    };
+    std::vector<ServerInviteDTO> getPendingServerInvites(std::string userId);
+
     // --- ROL VE YETKİLER ---
     bool createRole(std::string serverId, std::string roleName, int hierarchy, int permissions);
     std::vector<Role> getServerRoles(std::string serverId);

@@ -48,7 +48,10 @@ bool DatabaseManager::initTables() {
         "CREATE TABLE IF NOT EXISTS KanbanLists (ID TEXT PRIMARY KEY, ChannelID TEXT, Title TEXT, Position INTEGER, FOREIGN KEY(ChannelID) REFERENCES Channels(ID) ON DELETE CASCADE);"
         "CREATE TABLE IF NOT EXISTS KanbanCards (ID TEXT PRIMARY KEY, ListID TEXT, Title TEXT, Description TEXT, Priority INTEGER, Position INTEGER, FOREIGN KEY(ListID) REFERENCES KanbanLists(ID) ON DELETE CASCADE);"
         "CREATE TABLE IF NOT EXISTS Payments (ID TEXT PRIMARY KEY, UserID TEXT, ProviderPaymentID TEXT, Amount REAL, Currency TEXT, Status TEXT DEFAULT 'pending', CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(UserID) REFERENCES Users(ID));"
-        "CREATE TABLE IF NOT EXISTS Reports (ID TEXT PRIMARY KEY, ReporterID TEXT, ContentID TEXT, Type TEXT, Reason TEXT, Status TEXT DEFAULT 'OPEN', CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(ReporterID) REFERENCES Users(ID));";
+        "CREATE TABLE IF NOT EXISTS Reports (ID TEXT PRIMARY KEY, ReporterID TEXT, ContentID TEXT, Type TEXT, Reason TEXT, Status TEXT DEFAULT 'OPEN', CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(ReporterID) REFERENCES Users(ID));"
+        // DİKKAT: AŞAĞIDAKİ SATIR YENİ EKLENDİ
+        "CREATE TABLE IF NOT EXISTS ServerInvites (ServerID TEXT, InviterID TEXT, InviteeID TEXT, CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(ServerID, InviteeID));";
+
 
     return executeQuery(sql);
 }
@@ -236,16 +239,47 @@ bool DatabaseManager::banUser(std::string userId) {
 // =============================================================
 
 std::string DatabaseManager::createServer(const std::string& name, std::string ownerId) {
-    if (!isSubscriptionActive(ownerId) && getUserServerCount(ownerId) >= 1) return "";
+    // 1. Freemium (Standart Kullanıcı) Limit Kontrolü
+    if (!isSubscriptionActive(ownerId) && getUserServerCount(ownerId) >= 1) {
+        std::cout << "[UYARI] Standart kullanici sunucu limitine takildi (Maks 1): " << ownerId << std::endl;
+        return "";
+    }
+    // 2. Kullanıcının gerçekten DB'de olup olmadığını kontrol et (Sahte/Admin token koruması)
+    std::string checkUserSql = "SELECT ID FROM Users WHERE ID = ?;";
+    sqlite3_stmt* checkStmt;
+    bool userExists = false;
+    if (sqlite3_prepare_v2(db, checkUserSql.c_str(), -1, &checkStmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(checkStmt, 1, ownerId.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(checkStmt) == SQLITE_ROW) userExists = true;
+    }
+    sqlite3_finalize(checkStmt);
 
+    if (!userExists) {
+        std::cout << "[HATA] Sunucu kurmaya calisan OwnerID veritabaninda bulunamadi! (Gercek bir kullanici tokeni degil)" << std::endl;
+        return "";
+    }
+    // 3. Sunucuyu Güvenli Bir Şekilde Oluştur (SQL Injection ve Tırnak İşareti Korumalı)
     std::string id = Security::generateId(15);
-    std::string sql = "INSERT INTO Servers (ID, OwnerID, Name, InviteCode) VALUES ('" + id + "', '" + ownerId + "', '" + name + "', 'INV-" + id + "');";
+    std::string inviteCode = "INV-" + id;
+    std::string sql = "INSERT INTO Servers (ID, OwnerID, Name, InviteCode) VALUES (?, ?, ?, ?);";
+    sqlite3_stmt* stmt;
 
-    if (!executeQuery(sql)) return "";
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) return "";
 
-    addMemberToServer(id, ownerId);
-    createRole(id, "Admin", 100, 9999);
-    return id;
+    sqlite3_bind_text(stmt, 1, id.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, ownerId.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, name.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 4, inviteCode.c_str(), -1, SQLITE_TRANSIENT);
+    bool success = (sqlite3_step(stmt) == SQLITE_DONE);
+    sqlite3_finalize(stmt);
+    if (success) {
+        // Kurucuyu otomatik üye yap ve Admin yetkisi ver
+        addMemberToServer(id, ownerId);
+        createRole(id, "Admin", 100, 9999);
+        std::cout << "[BASARILI] Yeni sunucu kuruldu: " << name << " (ID: " << id << ")" << std::endl;
+        return id;
+    }
+    return "";
 }
 
 bool DatabaseManager::updateServer(std::string serverId, const std::string& name, const std::string& iconUrl) {
@@ -719,6 +753,9 @@ bool DatabaseManager::updateUserStatus(const std::string& userId, const std::str
         return false;
     }
 
+
+
+
     // Tablo ve sütun adları garanti olması için 'Users', 'Status', 'ID' olarak düzeltildi
     std::string query = "UPDATE Users SET Status = ? WHERE ID = ?;";
     sqlite3_stmt* stmt;
@@ -732,4 +769,73 @@ bool DatabaseManager::updateUserStatus(const std::string& userId, const std::str
         return success;
     }
     return false;
+}
+
+// Süper Admin için tüm sunucuları çeker
+std::vector<Server> DatabaseManager::getAllServers() {
+    std::vector<Server> servers;
+    std::string sql = "SELECT S.ID, S.Name, S.OwnerID, S.InviteCode, S.IconURL, S.CreatedAt, "
+        "(SELECT COUNT(*) FROM ServerMembers SM WHERE SM.ServerID = S.ID) "
+        "FROM Servers S;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            servers.push_back(Server{
+                SAFE_TEXT(0), SAFE_TEXT(2), SAFE_TEXT(1), SAFE_TEXT(3), SAFE_TEXT(4), SAFE_TEXT(5), sqlite3_column_int(stmt, 6), {}
+                });
+        }
+    }
+    sqlite3_finalize(stmt);
+    return servers;
+}
+
+// Sunucuya özel davet atma
+bool DatabaseManager::sendServerInvite(std::string serverId, std::string inviterId, std::string inviteeId) {
+    if (inviterId == inviteeId) return false;
+    std::string sql = "INSERT OR IGNORE INTO ServerInvites (ServerID, InviterID, InviteeID) VALUES (?, ?, ?);";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, serverId.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, inviterId.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 3, inviteeId.c_str(), -1, SQLITE_TRANSIENT);
+        bool success = (sqlite3_step(stmt) == SQLITE_DONE);
+        sqlite3_finalize(stmt);
+        return success;
+    }
+    return false;
+}
+
+// Gelen sunucu davetlerini listeleme
+std::vector<DatabaseManager::ServerInviteDTO> DatabaseManager::getPendingServerInvites(std::string userId) {
+    std::vector<ServerInviteDTO> invites;
+    std::string sql = "SELECT I.ServerID, S.Name, U.Name, I.CreatedAt FROM ServerInvites I "
+        "JOIN Servers S ON I.ServerID = S.ID "
+        "JOIN Users U ON I.InviterID = U.ID WHERE I.InviteeID = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, userId.c_str(), -1, SQLITE_TRANSIENT);
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            invites.push_back({ SAFE_TEXT(0), SAFE_TEXT(1), SAFE_TEXT(2), SAFE_TEXT(3) });
+        }
+    }
+    sqlite3_finalize(stmt);
+    return invites;
+}
+
+// Daveti Kabul Etme veya Reddetme
+bool DatabaseManager::resolveServerInvite(std::string serverId, std::string inviteeId, bool accept) {
+    // Önce daveti sil
+    std::string sql = "DELETE FROM ServerInvites WHERE ServerID = ? AND InviteeID = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, serverId.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, inviteeId.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+    }
+    // Eğer kabul edildiyse üyeliğe ekle
+    if (accept) {
+        return addMemberToServer(serverId, inviteeId);
+    }
+    return true;
 }
