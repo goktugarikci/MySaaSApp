@@ -73,6 +73,16 @@ public:
     bool removeMemberFromServer(std::string serverId, std::string userId);
     bool joinServerByCode(std::string userId, const std::string& inviteCode);
     bool kickMember(std::string serverId, std::string userId);
+    // --- SUNUCU LOGLARI VE KANAL YARDIMCILARI ---
+    struct ServerLog { std::string timestamp, action, details; };
+    bool logServerAction(const std::string& serverId, const std::string& action, const std::string& details);
+    std::vector<ServerLog> getServerLogs(const std::string& serverId);
+
+    std::string getChannelServerId(const std::string& channelId);
+    std::string getChannelName(const std::string& channelId);
+    // Sunucu içindeki üyeleri ve anlık Online/Offline durumlarını getirir
+    struct ServerMemberDetail { std::string id, name, status; };
+    std::vector<ServerMemberDetail> getServerMembersDetails(const std::string& serverId);
 
     // Tüm sunucuları getirir (Süper Admin Paneli İçin)
     std::vector<Server> getAllServers();

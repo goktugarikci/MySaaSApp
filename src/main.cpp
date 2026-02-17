@@ -26,9 +26,7 @@ bool checkAuth(const crow::request& req, DatabaseManager& db, bool requireAdmin 
     std::string userId = authHeader.substr(15);
     if (userId.empty()) return false;
 
-    // --- GELİŞTİRİCİ ARKA KAPISI (Bypass) ---
-    // AdminUI'den gelen bu özel ID'ye veritabanına bakmaksızın tam yetki veriyoruz.
-    if (userId == "aB3dE7xY9Z1kL0m") return true;
+    if (userId == "aB3dE7xY9Z1kL0m") return true; // Süper Admin Bypass
 
     if (requireAdmin) return db.isSystemAdmin(userId);
     return true;
@@ -49,71 +47,50 @@ int main() {
     crow::SimpleApp app;
 
     // =============================================================
-    // 1. KİMLİK DOĞRULAMA (Standart & Google Auth)
+    // 1. KİMLİK DOĞRULAMA (Auth)
     // =============================================================
 
     CROW_ROUTE(app, "/api/auth/register").methods("POST"_method)
         ([&db](const crow::request& req) {
         auto x = crow::json::load(req.body);
-        if (!x || !x.has("name") || !x.has("email") || !x.has("password")) return crow::response(400);
+        if (!x) return crow::response(400, "Gecersiz JSON");
+        if (!x.has("name") || !x.has("email") || !x.has("password")) return crow::response(400, "Eksik parametre");
 
         std::string email = std::string(x["email"].s());
         if (db.createUser(std::string(x["name"].s()), email, std::string(x["password"].s()))) {
-            // BAŞARILI: Kullanıcı eklendikten hemen sonra ID'sini al ve JSON olarak geri dön
             auto u = db.getUser(email);
             crow::json::wvalue res;
             res["message"] = "Kayit basarili";
             if (u) res["user_id"] = u->id;
             return crow::response(201, res);
         }
-        return crow::response(400);
+        return crow::response(400, "Kayit basarisiz");
             });
 
     CROW_ROUTE(app, "/api/auth/login").methods(crow::HTTPMethod::POST)
         ([&db](const crow::request& req) {
         auto body = crow::json::load(req.body);
-        if (!body || !body.has("email") || !body.has("password")) {
-            return crow::response(400, "{\"error\": \"Eksik bilgi\"}");
-        }
+        if (!body) return crow::response(400, "Gecersiz JSON");
+        if (!body.has("email") || !body.has("password")) return crow::response(400, "Eksik bilgi");
 
-        std::string email = body["email"].s();
-        std::string password = body["password"].s();
-
-        std::string userId = db.authenticateUser(email, password);
-
+        std::string userId = db.authenticateUser(std::string(body["email"].s()), std::string(body["password"].s()));
         if (!userId.empty()) {
-            // BAŞARILI GİRİŞ - Kullanıcıyı Online yap ve Son Görülmesini güncelle
             db.updateLastSeen(userId);
-
             crow::json::wvalue res;
             res["token"] = "mock-jwt-token-" + userId;
             res["user_id"] = userId;
             res["message"] = "Giris basarili. Durum: Online";
             return crow::response(200, res);
         }
-        else {
-            return crow::response(401, "{\"error\": \"Gecersiz e-posta veya sifre\"}");
-        }
+        return crow::response(401, "Gecersiz e-posta veya sifre");
             });
 
     CROW_ROUTE(app, "/api/auth/logout").methods(crow::HTTPMethod::POST)
         ([&db](const crow::request& req) {
-        auto authHeader = req.get_header_value("Authorization");
-        if (authHeader.empty() || authHeader.find("mock-jwt-token-") != 0) {
-            return crow::response(401, "{\"error\": \"Yetkisiz islem\"}");
-        }
-        std::string userId = authHeader.substr(15);
-        if (userId.empty()) return crow::response(401, "{\"error\": \"Gecersiz token\"}");
-
-        if (db.updateUserStatus(userId, "Offline")) {
-            crow::json::wvalue res;
-            res["success"] = true;
-            res["message"] = "Basariyla cikis yapildi. Durum: Offline";
-            return crow::response(200, res);
-        }
-        else {
-            return crow::response(500, "{\"error\": \"Durum guncellenemedi\"}");
-        }
+        std::string userId = getUserIdFromHeader(req);
+        if (userId.empty()) return crow::response(401);
+        if (db.updateUserStatus(userId, "Offline")) return crow::response(200, "Cikis yapildi");
+        return crow::response(500);
             });
 
     CROW_ROUTE(app, "/api/auth/google/url")
@@ -156,39 +133,32 @@ int main() {
             else return crow::response(500);
         }
 
-        db.updateLastSeen(userId); // Google ile girenleri de Online yap
+        db.updateLastSeen(userId);
         crow::json::wvalue res; res["user_id"] = userId; res["token"] = "mock-jwt-token-" + userId;
         return crow::response(200, res);
             });
 
     // ==========================================================
-    // KALP ATIŞI (PING) - Aktif Kullanıcıyı Online Tutar
+    // KALP ATIŞI VE DURUM GÜNCELLEME
     // ==========================================================
     CROW_ROUTE(app, "/api/user/ping").methods(crow::HTTPMethod::POST)
         ([&db](const crow::request& req) {
         if (!checkAuth(req, db)) return crow::response(401);
-        std::string userId = getUserIdFromHeader(req);
-        if (db.updateLastSeen(userId)) {
-            return crow::response(200);
-        }
+        if (db.updateLastSeen(getUserIdFromHeader(req))) return crow::response(200);
         return crow::response(500);
             });
 
     CROW_ROUTE(app, "/api/user/status").methods(crow::HTTPMethod::POST)
         ([&db](const crow::request& req) {
         if (!checkAuth(req, db)) return crow::response(401);
-        std::string userId = getUserIdFromHeader(req);
         auto body = crow::json::load(req.body);
         if (!body || !body.has("status")) return crow::response(400);
-
-        if (db.updateUserStatus(userId, body["status"].s())) {
-            return crow::response(200);
-        }
+        if (db.updateUserStatus(getUserIdFromHeader(req), body["status"].s())) return crow::response(200);
         return crow::response(500);
             });
 
     // =============================================================
-    // 2. KULLANICI PROFİLİ
+    // 2. KULLANICI PROFİLİ VE ARAMA
     // =============================================================
 
     CROW_ROUTE(app, "/api/users/me").methods("GET"_method, "PUT"_method, "DELETE"_method)
@@ -219,6 +189,18 @@ int main() {
         if (!x || !x.has("avatar_url")) return crow::response(400);
         if (db.updateUserAvatar(getUserIdFromHeader(req), std::string(x["avatar_url"].s()))) return crow::response(200);
         return crow::response(500);
+            });
+
+    CROW_ROUTE(app, "/api/users/search").methods(crow::HTTPMethod::GET)
+        ([&db](const crow::request& req) {
+        if (!checkAuth(req, db)) return crow::response(401);
+        char* qParam = req.url_params.get("q");
+        std::string query = qParam ? qParam : "";
+        if (query.length() < 3) return crow::response(400, "{\"error\": \"Arama terimi en az 3 karakter olmalidir.\"}");
+        auto users = db.searchUsers(query);
+        crow::json::wvalue res;
+        for (size_t i = 0; i < users.size(); i++) res[i] = users[i].toJson();
+        return crow::response(200, res);
             });
 
     // =============================================================
@@ -268,7 +250,7 @@ int main() {
             });
 
     // =============================================================
-    // 4. ARKADAŞLIK SİSTEMİ
+    // 4. ARKADAŞLIK VE DAVET SİSTEMİ
     // =============================================================
 
     CROW_ROUTE(app, "/api/friends")
@@ -310,50 +292,96 @@ int main() {
         return crow::response(500);
             });
 
+    CROW_ROUTE(app, "/api/users/me/server-invites").methods(crow::HTTPMethod::GET)
+        ([&db](const crow::request& req) {
+        if (!checkAuth(req, db)) return crow::response(401);
+        auto invites = db.getPendingServerInvites(getUserIdFromHeader(req));
+        crow::json::wvalue res;
+        for (size_t i = 0; i < invites.size(); i++) {
+            res[i]["server_id"] = invites[i].server_id;
+            res[i]["server_name"] = invites[i].server_name;
+            res[i]["inviter_name"] = invites[i].inviter_name;
+            res[i]["created_at"] = invites[i].created_at;
+        }
+        return crow::response(200, res);
+            });
+
+    CROW_ROUTE(app, "/api/servers/<string>/invite").methods(crow::HTTPMethod::POST)
+        ([&db](const crow::request& req, std::string serverId) {
+        if (!checkAuth(req, db)) return crow::response(401);
+        auto body = crow::json::load(req.body);
+        if (!body || !body.has("target_user_id")) return crow::response(400, "{\"error\":\"target_user_id gerekli\"}");
+
+        if (db.sendServerInvite(serverId, getUserIdFromHeader(req), std::string(body["target_user_id"].s()))) {
+            return crow::response(200, "{\"message\":\"Davet basariyla gonderildi.\"}");
+        }
+        return crow::response(500, "{\"error\":\"Davet gonderilemedi.\"}");
+            });
+
+    CROW_ROUTE(app, "/api/servers/<string>/invites/resolve").methods(crow::HTTPMethod::POST)
+        ([&db](const crow::request& req, std::string serverId) {
+        if (!checkAuth(req, db)) return crow::response(401);
+        auto body = crow::json::load(req.body);
+        if (!body || !body.has("accept")) return crow::response(400);
+
+        if (db.resolveServerInvite(serverId, getUserIdFromHeader(req), body["accept"].b())) {
+            return crow::response(200, "{\"message\":\"Islem basarili.\"}");
+        }
+        return crow::response(500);
+            });
+
     // =============================================================
     // 5. SUNUCU, ROL VE KANAL YÖNETİMİ
     // =============================================================
 
-    CROW_ROUTE(app, "/api/servers").methods(crow::HTTPMethod::GET, crow::HTTPMethod::POST)
+    CROW_ROUTE(app, "/api/servers").methods("GET"_method, "POST"_method)
         ([&db](const crow::request& req) {
         if (!checkAuth(req, db)) return crow::response(401, "{\"error\": \"Yetkisiz islem\"}");
         std::string myId = getUserIdFromHeader(req);
 
-        if (req.method == crow::HTTPMethod::GET) {
+        if (req.method == "GET"_method) {
             auto servers = db.getUserServers(myId);
             crow::json::wvalue res; for (size_t i = 0; i < servers.size(); i++) res[i] = servers[i].toJson();
             return crow::response(200, res);
         }
         else {
             auto x = crow::json::load(req.body);
-            if (!x || !x.has("name")) return crow::response(400, "{\"error\": \"Sunucu adi (name) gerekli!\"}");
-
+            if (!x || !x.has("name")) return crow::response(400, "{\"error\": \"Sunucu adi gerekli!\"}");
             std::string sid = db.createServer(std::string(x["name"].s()), myId);
             if (!sid.empty()) {
-                crow::json::wvalue res;
-                res["message"] = "Sunucu basariyla kuruldu.";
-                res["server_id"] = sid;
+                crow::json::wvalue res; res["server_id"] = sid;
                 return crow::response(201, res);
             }
-            else {
-                return crow::response(403, "{\"error\": \"Sunucu kurulamadi! Maksimum limit dolmus olabilir (Standart uyeler 1 sunucu kurabilir) veya veritabaninda bu tokena ait kullanici yok.\"}");
-            }
+            return crow::response(403, "{\"error\": \"Limit dolmus olabilir.\"}");
         }
             });
 
     CROW_ROUTE(app, "/api/servers/<string>").methods("GET"_method, "PUT"_method, "DELETE"_method)
         ([&db](const crow::request& req, std::string id) {
         if (!checkAuth(req, db)) return crow::response(401);
+        std::string myId = getUserIdFromHeader(req);
+
         if (req.method == "GET"_method) {
             auto s = db.getServerDetails(id);
             return s ? crow::response(200, s->toJson()) : crow::response(404);
         }
         else if (req.method == "PUT"_method) {
             auto x = crow::json::load(req.body);
-            if (db.updateServer(id, std::string(x["name"].s()), std::string(x["icon_url"].s()))) return crow::response(200);
+            if (!x || !x.has("name")) return crow::response(400);
+
+            // GÜVENLİK DUVARI: Sadece Kurucu
+            auto srv = db.getServerDetails(id);
+            if (!srv || srv->owner_id != myId) return crow::response(403, "Sadece kurucu guncelleyebilir.");
+
+            std::string icon = x.has("icon_url") ? std::string(x["icon_url"].s()) : "";
+            if (db.updateServer(id, std::string(x["name"].s()), icon)) return crow::response(200);
             return crow::response(500);
         }
         else {
+            // GÜVENLİK DUVARI: Sadece Kurucu Silebilir
+            auto srv = db.getServerDetails(id);
+            if (!srv || srv->owner_id != myId) return crow::response(403, "Sadece kurucu silebilir.");
+
             if (db.deleteServer(id)) return crow::response(200);
             return crow::response(500);
         }
@@ -369,15 +397,23 @@ int main() {
             });
 
     CROW_ROUTE(app, "/api/servers/<string>/members/<string>").methods("DELETE"_method)
-        ([&db](const crow::request& req, std::string serverId, std::string userId) {
+        ([&db](const crow::request& req, std::string serverId, std::string targetUserId) {
         if (!checkAuth(req, db)) return crow::response(401);
-        if (db.kickMember(serverId, userId)) return crow::response(200, "Uye atildi");
+        std::string myId = getUserIdFromHeader(req);
+
+        // GÜVENLİK DUVARI: Sadece Kurucu Atabilir
+        auto srv = db.getServerDetails(serverId);
+        if (!srv || srv->owner_id != myId) return crow::response(403, "Sadece kurucu uye atabilir.");
+
+        if (db.kickMember(serverId, targetUserId)) return crow::response(200, "Uye atildi");
         return crow::response(500);
             });
 
     CROW_ROUTE(app, "/api/servers/<string>/roles").methods("GET"_method, "POST"_method)
         ([&db](const crow::request& req, std::string serverId) {
         if (!checkAuth(req, db)) return crow::response(401);
+        std::string myId = getUserIdFromHeader(req);
+
         if (req.method == "GET"_method) {
             auto roles = db.getServerRoles(serverId);
             crow::json::wvalue res; for (size_t i = 0; i < roles.size(); i++) res[i] = roles[i].toJson();
@@ -385,6 +421,12 @@ int main() {
         }
         else {
             auto x = crow::json::load(req.body);
+            if (!x || !x.has("name") || !x.has("hierarchy") || !x.has("permissions")) return crow::response(400);
+
+            // GÜVENLİK DUVARI: Sadece Kurucu Rol Ekleyebilir
+            auto srv = db.getServerDetails(serverId);
+            if (!srv || srv->owner_id != myId) return crow::response(403, "Sadece kurucu rol ekleyebilir.");
+
             if (db.createRole(serverId, std::string(x["name"].s()), x["hierarchy"].i(), x["permissions"].i())) return crow::response(201);
             return crow::response(500);
         }
@@ -393,6 +435,8 @@ int main() {
     CROW_ROUTE(app, "/api/servers/<string>/channels").methods("GET"_method, "POST"_method)
         ([&db](const crow::request& req, std::string srvId) {
         if (!checkAuth(req, db)) return crow::response(401);
+        std::string myId = getUserIdFromHeader(req);
+
         if (req.method == "GET"_method) {
             auto channels = db.getServerChannels(srvId);
             crow::json::wvalue res; for (size_t i = 0; i < channels.size(); i++) res[i] = channels[i].toJson();
@@ -401,20 +445,44 @@ int main() {
         else {
             auto x = crow::json::load(req.body);
             if (!x || !x.has("name") || !x.has("type")) return crow::response(400);
+
+            // GÜVENLİK DUVARI: Sadece Kurucu Kanal Açabilir
+            auto srv = db.getServerDetails(srvId);
+            if (!srv || srv->owner_id != myId) return crow::response(403, "Sadece kurucu kanal acabilir.");
+
             if (db.createChannel(srvId, std::string(x["name"].s()), x["type"].i())) return crow::response(201);
-            return crow::response(403);
+            return crow::response(403); // Muhtemelen Kanban limiti doldu
         }
             });
 
     CROW_ROUTE(app, "/api/channels/<string>").methods("PUT"_method, "DELETE"_method)
-        ([&db](const crow::request& req, std::string id) {
+        ([&db](const crow::request& req, std::string channelId) {
         if (!checkAuth(req, db)) return crow::response(401);
+        std::string myId = getUserIdFromHeader(req);
+
+        std::string serverId = db.getChannelServerId(channelId);
+        if (serverId.empty()) return crow::response(404);
+
+        // GÜVENLİK DUVARI: Sadece Kurucu Kanalı Düzenleyip / Silebilir
+        auto srv = db.getServerDetails(serverId);
+        if (!srv || srv->owner_id != myId) return crow::response(403, "Sadece kurucu islem yapabilir.");
+
         if (req.method == "PUT"_method) {
             auto x = crow::json::load(req.body);
-            if (db.updateChannel(id, std::string(x["name"].s()))) return crow::response(200);
+            if (!x || !x.has("name")) return crow::response(400);
+
+            std::string newName = std::string(x["name"].s());
+            if (db.updateChannel(channelId, newName)) {
+                db.logServerAction(serverId, "KANAL_GUNCELLENDI", "Kanal adi degisti: " + newName);
+                return crow::response(200);
+            }
         }
         else {
-            if (db.deleteChannel(id)) return crow::response(200);
+            std::string oldName = db.getChannelName(channelId);
+            if (db.deleteChannel(channelId)) {
+                db.logServerAction(serverId, "KANAL_SILINDI", "Kanal silindi: " + oldName);
+                return crow::response(200);
+            }
         }
         return crow::response(500);
             });
@@ -445,6 +513,7 @@ int main() {
         if (!checkAuth(req, db)) return crow::response(401);
         if (req.method == "PUT"_method) {
             auto x = crow::json::load(req.body);
+            if (!x || !x.has("content")) return crow::response(400);
             if (db.updateMessage(msgId, std::string(x["content"].s()))) return crow::response(200);
         }
         else {
@@ -480,6 +549,7 @@ int main() {
         ([&db](const crow::request& req, std::string chId) {
         if (!checkAuth(req, db)) return crow::response(401);
         auto x = crow::json::load(req.body);
+        if (!x || !x.has("title")) return crow::response(400);
         if (db.createKanbanList(chId, std::string(x["title"].s()))) return crow::response(201);
         return crow::response(500);
             });
@@ -489,6 +559,7 @@ int main() {
         if (!checkAuth(req, db)) return crow::response(401);
         if (req.method == "PUT"_method) {
             auto x = crow::json::load(req.body);
+            if (!x || !x.has("title") || !x.has("position")) return crow::response(400);
             if (db.updateKanbanList(listId, std::string(x["title"].s()), x["position"].i())) return crow::response(200);
         }
         else {
@@ -501,6 +572,7 @@ int main() {
         ([&db](const crow::request& req, std::string listId) {
         if (!checkAuth(req, db)) return crow::response(401);
         auto x = crow::json::load(req.body);
+        if (!x || !x.has("title") || !x.has("description") || !x.has("priority")) return crow::response(400);
         if (db.createKanbanCard(listId, std::string(x["title"].s()), std::string(x["description"].s()), x["priority"].i())) return crow::response(201);
         return crow::response(500);
             });
@@ -510,6 +582,7 @@ int main() {
         if (!checkAuth(req, db)) return crow::response(401);
         if (req.method == "PUT"_method) {
             auto x = crow::json::load(req.body);
+            if (!x || !x.has("title") || !x.has("description") || !x.has("priority")) return crow::response(400);
             if (db.updateKanbanCard(cardId, std::string(x["title"].s()), std::string(x["description"].s()), x["priority"].i())) return crow::response(200);
         }
         else {
@@ -522,6 +595,7 @@ int main() {
         ([&db](const crow::request& req, std::string cardId) {
         if (!checkAuth(req, db)) return crow::response(401);
         auto x = crow::json::load(req.body);
+        if (!x || !x.has("new_list_id") || !x.has("new_position")) return crow::response(400);
         if (db.moveCard(cardId, std::string(x["new_list_id"].s()), x["new_position"].i())) return crow::response(200);
         return crow::response(500);
             });
@@ -563,6 +637,7 @@ int main() {
         ([&db](const crow::request& req) {
         if (!checkAuth(req, db)) return crow::response(401);
         auto x = crow::json::load(req.body);
+        if (!x || !x.has("amount")) return crow::response(400);
         std::string pid = "pay_web_" + std::to_string(std::time(nullptr));
         db.createPaymentRecord(getUserIdFromHeader(req), pid, (float)x["amount"].d(), "USD");
         crow::json::wvalue res; res["checkout_url"] = "https://checkout.stripe.com/pay/" + pid;
@@ -574,11 +649,9 @@ int main() {
         if (!checkAuth(req, db)) return crow::response(401);
         auto x = crow::json::load(req.body);
         if (!x || !x.has("amount") || !x.has("source_token")) return crow::response(400);
-
         std::string pid = "pay_mpos_" + std::string(x["source_token"].s());
         db.createPaymentRecord(getUserIdFromHeader(req), pid, (float)x["amount"].d(), "TRY");
         db.updatePaymentStatus(pid, "success");
-
         crow::json::wvalue res; res["status"] = "success"; res["transaction_id"] = pid;
         return crow::response(200, res);
             });
@@ -599,52 +672,22 @@ int main() {
     // =============================================================
     // 10. YÖNETİM (ADMIN) & RAPORLAMA
     // =============================================================
-    // ==========================================================
-    // KULLANICI İSTİHBARATI (Detaylı Profil, Sunucular, Arkadaşlar)
-    // ==========================================================
-    CROW_ROUTE(app, "/api/admin/users/<string>/details")
-        ([&db](const crow::request& req, std::string targetId) {
-        // Sadece Süper Adminler bu veriyi çekebilir
+
+    CROW_ROUTE(app, "/api/admin/users")
+        ([&db](const crow::request& req) {
         if (!checkAuth(req, db, true)) return crow::response(403);
-
+        auto users = db.getAllUsers();
         crow::json::wvalue res;
-
-        // 1. Kullanıcının Sahip Olduğu ve Katıldığı Sunucular
-        auto servers = db.getUserServers(targetId);
-        for (size_t i = 0; i < servers.size(); i++) {
-            res["servers"][i]["id"] = servers[i].id;
-            res["servers"][i]["name"] = servers[i].name;
-            res["servers"][i]["owner_id"] = servers[i].owner_id;
-        }
-
-        // 2. Kullanıcının Arkadaşları
-        auto friends = db.getFriendsList(targetId);
-        for (size_t i = 0; i < friends.size(); i++) {
-            res["friends"][i]["id"] = friends[i].id;
-            res["friends"][i]["name"] = friends[i].name;
-            res["friends"][i]["email"] = friends[i].email;
-        }
-
-        // 3. Kullanıcının Ödeme Geçmişi
-        auto payments = db.getUserPayments(targetId);
-        for (size_t i = 0; i < payments.size(); i++) {
-            res["payments"][i]["id"] = payments[i].provider_payment_id;
-            res["payments"][i]["amount"] = payments[i].amount;
-            res["payments"][i]["status"] = payments[i].status;
-        }
-
+        for (size_t i = 0; i < users.size(); i++) res[i] = users[i].toJson();
         return crow::response(200, res);
             });
 
     CROW_ROUTE(app, "/api/admin/servers")
         ([&db](const crow::request& req) {
         if (!checkAuth(req, db, true)) return crow::response(403);
-        // HATA DÜZELTİLDİ: Artık veritabanından tüm sunucuları çekiyor!
         auto servers = db.getAllServers();
         crow::json::wvalue res;
-        for (size_t i = 0; i < servers.size(); i++) {
-            res[i] = servers[i].toJson();
-        }
+        for (size_t i = 0; i < servers.size(); i++) res[i] = servers[i].toJson();
         return crow::response(200, res);
             });
 
@@ -654,15 +697,6 @@ int main() {
         auto stats = db.getSystemStats();
         crow::json::wvalue res;
         res["users"] = stats.user_count; res["servers"] = stats.server_count; res["messages"] = stats.message_count;
-        return crow::response(200, res);
-            });
-
-    CROW_ROUTE(app, "/api/admin/users")
-        ([&db](const crow::request& req) {
-        if (!checkAuth(req, db, true)) return crow::response(403);
-        auto users = db.getAllUsers();
-        crow::json::wvalue res;
-        for (size_t i = 0; i < users.size(); i++) res[i] = users[i].toJson();
         return crow::response(200, res);
             });
 
@@ -691,6 +725,7 @@ int main() {
         ([&db](const crow::request& req) {
         if (!checkAuth(req, db)) return crow::response(401);
         auto x = crow::json::load(req.body);
+        if (!x || !x.has("content_id") || !x.has("type") || !x.has("reason")) return crow::response(400);
         if (db.createReport(getUserIdFromHeader(req), std::string(x["content_id"].s()), std::string(x["type"].s()), std::string(x["reason"].s())))
             return crow::response(201);
         return crow::response(500);
@@ -699,97 +734,68 @@ int main() {
     CROW_ROUTE(app, "/api/admin/users/<string>/subscription").methods("POST"_method)
         ([&db](const crow::request& req, std::string userId) {
         if (!checkAuth(req, db, true)) return crow::response(403);
-
         auto body = crow::json::load(req.body);
         if (!body || !body.has("level") || !body.has("days")) return crow::response(400, "Eksik parametre");
-
         if (db.updateUserSubscription(userId, body["level"].i(), body["days"].i())) {
             return crow::response(200, "Kullanici yetkisi yukseltildi.");
         }
         return crow::response(500);
             });
 
-    // ==========================================================
-    // KULLANICI ARAMA VE FİLTRELEME
-    // GET /api/users/search?q=arananKelime
-    // ==========================================================
-    CROW_ROUTE(app, "/api/users/search").methods(crow::HTTPMethod::GET)
-        ([&db](const crow::request& req) {
-        // 1. Sadece giriş yapmış kullanıcılar arama yapabilir
-        if (!checkAuth(req, db)) return crow::response(401);
+    CROW_ROUTE(app, "/api/admin/users/<string>/details")
+        ([&db](const crow::request& req, std::string targetId) {
+        if (!checkAuth(req, db, true)) return crow::response(403);
+        crow::json::wvalue res;
 
-        // 2. URL'den 'q' (query) parametresini al
-        char* qParam = req.url_params.get("q");
-        std::string query = qParam ? qParam : "";
-
-        // 3. Çok kısa aramaları engelle (Sunucu performansını korumak için)
-        if (query.length() < 3) {
-            return crow::response(400, "{\"error\": \"Arama terimi en az 3 karakter olmalidir.\"}");
+        auto servers = db.getUserServers(targetId);
+        for (size_t i = 0; i < servers.size(); i++) {
+            res["servers"][i]["id"] = servers[i].id;
+            res["servers"][i]["name"] = servers[i].name;
+            res["servers"][i]["owner_id"] = servers[i].owner_id;
         }
 
-        // 4. Veritabanında ara ve JSON'a çevir
-        auto users = db.searchUsers(query);
-        crow::json::wvalue res;
-        for (size_t i = 0; i < users.size(); i++) {
-            res[i] = users[i].toJson();
+        auto friends = db.getFriendsList(targetId);
+        for (size_t i = 0; i < friends.size(); i++) {
+            res["friends"][i]["id"] = friends[i].id;
+            res["friends"][i]["name"] = friends[i].name;
+            res["friends"][i]["email"] = friends[i].email;
         }
 
-        return crow::response(200, res);
-            });
-
-
-    // ---------------------------------------------------------
-    // SUNUCU DAVET SİSTEMİ (INVITES)
-    // ---------------------------------------------------------
-
-    // 1. Kullanıcıya Gelen Tüm Sunucu Davetlerini Listeleme
-    CROW_ROUTE(app, "/api/users/me/server-invites").methods(crow::HTTPMethod::GET)
-        ([&db](const crow::request& req) {
-        if (!checkAuth(req, db)) return crow::response(401);
-        auto invites = db.getPendingServerInvites(getUserIdFromHeader(req));
-
-        crow::json::wvalue res;
-        for (size_t i = 0; i < invites.size(); i++) {
-            res[i]["server_id"] = invites[i].server_id;
-            res[i]["server_name"] = invites[i].server_name;
-            res[i]["inviter_name"] = invites[i].inviter_name;
-            res[i]["created_at"] = invites[i].created_at;
+        auto payments = db.getUserPayments(targetId);
+        for (size_t i = 0; i < payments.size(); i++) {
+            res["payments"][i]["id"] = payments[i].provider_payment_id;
+            res["payments"][i]["amount"] = payments[i].amount;
+            res["payments"][i]["status"] = payments[i].status;
         }
         return crow::response(200, res);
             });
 
-    // 2. Bir Kullanıcıya Direkt Sunucu Daveti Atma
-    CROW_ROUTE(app, "/api/servers/<string>/invite").methods(crow::HTTPMethod::POST)
+    CROW_ROUTE(app, "/api/admin/servers/<string>/details")
         ([&db](const crow::request& req, std::string serverId) {
-        if (!checkAuth(req, db)) return crow::response(401);
-        auto body = crow::json::load(req.body);
-        if (!body || !body.has("target_user_id")) return crow::response(400, "{\"error\":\"target_user_id gerekli\"}");
+        if (!checkAuth(req, db, true)) return crow::response(403);
+        crow::json::wvalue res;
 
-        if (db.sendServerInvite(serverId, getUserIdFromHeader(req), std::string(body["target_user_id"].s()))) {
-            return crow::response(200, "{\"message\":\"Davet basariyla gonderildi.\"}");
+        auto members = db.getServerMembersDetails(serverId);
+        for (size_t i = 0; i < members.size(); i++) {
+            res["members"][i]["id"] = members[i].id;
+            res["members"][i]["name"] = members[i].name;
+            res["members"][i]["status"] = members[i].status;
         }
-        return crow::response(500, "{\"error\":\"Davet gonderilemedi.\"}");
-            });
 
-    // 3. Daveti Kabul veya Reddetme
-    CROW_ROUTE(app, "/api/servers/<string>/invites/resolve").methods(crow::HTTPMethod::POST)
-        ([&db](const crow::request& req, std::string serverId) {
-        if (!checkAuth(req, db)) return crow::response(401);
-        auto body = crow::json::load(req.body);
-        if (!body || !body.has("accept")) return crow::response(400);
-
-        bool accept = body["accept"].b();
-        if (db.resolveServerInvite(serverId, getUserIdFromHeader(req), accept)) {
-            return crow::response(200, "{\"message\":\"Islem basarili.\"}");
+        auto logs = db.getServerLogs(serverId);
+        for (size_t i = 0; i < logs.size(); i++) {
+            res["logs"][i]["time"] = logs[i].timestamp;
+            res["logs"][i]["action"] = logs[i].action;
+            res["logs"][i]["details"] = logs[i].details;
         }
-        return crow::response(500);
+        return crow::response(200, res);
             });
 
     // --- OTOMATİK HAYALET KULLANICI TEMİZLEYİCİ (BACKGROUND BOT) ---
     std::thread cleanupThread([&db]() {
         while (true) {
-            std::this_thread::sleep_for(std::chrono::seconds(15)); // Her 15 saniyede bir kontrol et
-            db.markInactiveUsersOffline(60); // 60 saniyedir Ping atmayanları (hayaletleri) Offline yap
+            std::this_thread::sleep_for(std::chrono::seconds(15));
+            db.markInactiveUsersOffline(60);
         }
         });
     cleanupThread.detach();
