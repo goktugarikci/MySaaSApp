@@ -50,6 +50,7 @@ bool DatabaseManager::initTables() {
         "CREATE TABLE IF NOT EXISTS Payments (ID TEXT PRIMARY KEY, UserID TEXT, ProviderPaymentID TEXT, Amount REAL, Currency TEXT, Status TEXT DEFAULT 'pending', CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(UserID) REFERENCES Users(ID));"
         "CREATE TABLE IF NOT EXISTS Reports (ID TEXT PRIMARY KEY, ReporterID TEXT, ContentID TEXT, Type TEXT, Reason TEXT, Status TEXT DEFAULT 'OPEN', CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(ReporterID) REFERENCES Users(ID));"
         // DİKKAT: AŞAĞIDAKİ SATIR YENİ EKLENDİ
+        "CREATE TABLE IF NOT EXISTS ServerLogs (ID INTEGER PRIMARY KEY AUTOINCREMENT, ServerID TEXT, Action TEXT, Details TEXT, CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP);";
         "CREATE TABLE IF NOT EXISTS ServerInvites (ServerID TEXT, InviterID TEXT, InviteeID TEXT, CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(ServerID, InviteeID));";
 
 
@@ -838,4 +839,70 @@ bool DatabaseManager::resolveServerInvite(std::string serverId, std::string invi
         return addMemberToServer(serverId, inviteeId);
     }
     return true;
+}
+
+// Sunucu üyelerini ve durumlarını çeker (Admin Modal için)
+std::vector<DatabaseManager::ServerMemberDetail> DatabaseManager::getServerMembersDetails(const std::string& serverId) {
+    std::vector<ServerMemberDetail> members;
+    // Users tablosu ile ServerMembers tablosunu birleştirip verileri alıyoruz
+    std::string sql = "SELECT U.ID, U.Name, U.Status FROM ServerMembers SM JOIN Users U ON SM.UserID = U.ID WHERE SM.ServerID = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, serverId.c_str(), -1, SQLITE_TRANSIENT);
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            members.push_back({ SAFE_TEXT(0), SAFE_TEXT(1), SAFE_TEXT(2) });
+        }
+    }
+    sqlite3_finalize(stmt);
+    return members;
+}
+
+bool DatabaseManager::logServerAction(const std::string& serverId, const std::string& action, const std::string& details) {
+    std::string sql = "INSERT INTO ServerLogs (ServerID, Action, Details) VALUES (?, ?, ?);";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, serverId.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, action.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 3, details.c_str(), -1, SQLITE_TRANSIENT);
+        bool success = (sqlite3_step(stmt) == SQLITE_DONE);
+        sqlite3_finalize(stmt);
+        return success;
+    }
+    return false;
+}
+
+std::vector<DatabaseManager::ServerLog> DatabaseManager::getServerLogs(const std::string& serverId) {
+    std::vector<ServerLog> logs;
+    std::string sql = "SELECT CreatedAt, Action, Details FROM ServerLogs WHERE ServerID = ? ORDER BY CreatedAt DESC LIMIT 50;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, serverId.c_str(), -1, SQLITE_TRANSIENT);
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            logs.push_back({ SAFE_TEXT(0), SAFE_TEXT(1), SAFE_TEXT(2) });
+        }
+    }
+    sqlite3_finalize(stmt);
+    return logs;
+}
+
+std::string DatabaseManager::getChannelServerId(const std::string& channelId) {
+    std::string srvId = "";
+    std::string sql = "SELECT ServerID FROM Channels WHERE ID = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, channelId.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(stmt) == SQLITE_ROW) srvId = SAFE_TEXT(0);
+    }
+    sqlite3_finalize(stmt); return srvId;
+}
+
+std::string DatabaseManager::getChannelName(const std::string& channelId) {
+    std::string name = "";
+    std::string sql = "SELECT Name FROM Channels WHERE ID = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, channelId.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(stmt) == SQLITE_ROW) name = SAFE_TEXT(0);
+    }
+    sqlite3_finalize(stmt); return name;
 }
