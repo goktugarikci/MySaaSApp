@@ -41,7 +41,8 @@ bool DatabaseManager::initTables() {
         "CREATE TABLE IF NOT EXISTS Servers (ID TEXT PRIMARY KEY, OwnerID TEXT, Name TEXT NOT NULL, InviteCode TEXT UNIQUE, IconURL TEXT, CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(OwnerID) REFERENCES Users(ID) ON DELETE CASCADE);"
         "CREATE TABLE IF NOT EXISTS Roles (ID TEXT PRIMARY KEY, ServerID TEXT, RoleName TEXT NOT NULL, Color TEXT DEFAULT '#FFFFFF', Hierarchy INTEGER DEFAULT 0, Permissions INTEGER DEFAULT 0, FOREIGN KEY(ServerID) REFERENCES Servers(ID) ON DELETE CASCADE);"
         "CREATE TABLE IF NOT EXISTS ServerMembers (ServerID TEXT, UserID TEXT, Nickname TEXT, JoinedAt DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (ServerID, UserID), FOREIGN KEY(ServerID) REFERENCES Servers(ID) ON DELETE CASCADE, FOREIGN KEY(UserID) REFERENCES Users(ID) ON DELETE CASCADE);"
-        "CREATE TABLE IF NOT EXISTS Channels (ID TEXT PRIMARY KEY, ServerID TEXT, Name TEXT NOT NULL, Type INTEGER NOT NULL, FOREIGN KEY(ServerID) REFERENCES Servers(ID) ON DELETE CASCADE);"
+        "CREATE TABLE IF NOT EXISTS Channels (ID TEXT PRIMARY KEY, ServerID TEXT, Name TEXT NOT NULL, Type INTEGER NOT NULL, IsPrivate INTEGER DEFAULT 0, FOREIGN KEY(ServerID) REFERENCES Servers(ID) ON DELETE CASCADE);"
+        "CREATE TABLE IF NOT EXISTS ChannelMembers (ChannelID TEXT, UserID TEXT, PRIMARY KEY(ChannelID, UserID), FOREIGN KEY(ChannelID) REFERENCES Channels(ID) ON DELETE CASCADE, FOREIGN KEY(UserID) REFERENCES Users(ID) ON DELETE CASCADE);"
         "CREATE TABLE IF NOT EXISTS Messages (ID TEXT PRIMARY KEY, ChannelID TEXT, SenderID TEXT, Content TEXT, AttachmentURL TEXT, Timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(ChannelID) REFERENCES Channels(ID) ON DELETE CASCADE, FOREIGN KEY(SenderID) REFERENCES Users(ID));"
         "CREATE TABLE IF NOT EXISTS Friends (RequesterID TEXT, TargetID TEXT, Status INTEGER DEFAULT 0, CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (RequesterID, TargetID), FOREIGN KEY(RequesterID) REFERENCES Users(ID), FOREIGN KEY(TargetID) REFERENCES Users(ID));"
         "CREATE TABLE IF NOT EXISTS KanbanLists (ID TEXT PRIMARY KEY, ChannelID TEXT, Title TEXT, Position INTEGER, FOREIGN KEY(ChannelID) REFERENCES Channels(ID) ON DELETE CASCADE);"
@@ -52,7 +53,11 @@ bool DatabaseManager::initTables() {
         "CREATE TABLE IF NOT EXISTS ServerInvites (ServerID TEXT, InviterID TEXT, InviteeID TEXT, CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(ServerID, InviteeID));"
         "CREATE TABLE IF NOT EXISTS Notifications (ID INTEGER PRIMARY KEY AUTOINCREMENT, UserID TEXT, Message TEXT, Type TEXT, IsRead INTEGER DEFAULT 0, CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(UserID) REFERENCES Users(ID) ON DELETE CASCADE);"
         "CREATE TABLE IF NOT EXISTS SystemLogs (ID INTEGER PRIMARY KEY AUTOINCREMENT, Level TEXT, Action TEXT, Details TEXT, CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP);"
-        "CREATE TABLE IF NOT EXISTS ArchivedMessages (ID TEXT PRIMARY KEY, OriginalChannelID TEXT, SenderID TEXT, Content TEXT, DeletedAt DATETIME DEFAULT CURRENT_TIMESTAMP);";
+        "CREATE TABLE IF NOT EXISTS ArchivedMessages (ID TEXT PRIMARY KEY, OriginalChannelID TEXT, SenderID TEXT, Content TEXT, DeletedAt DATETIME DEFAULT CURRENT_TIMESTAMP);"
+        "CREATE TABLE IF NOT EXISTS MessageReactions (MessageID TEXT, UserID TEXT, Emoji TEXT, PRIMARY KEY(MessageID, UserID, Emoji), FOREIGN KEY(MessageID) REFERENCES Messages(ID) ON DELETE CASCADE);"
+        "CREATE TABLE IF NOT EXISTS MessageReplies (ID TEXT PRIMARY KEY, ParentMessageID TEXT, SenderID TEXT, Content TEXT, Timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(ParentMessageID) REFERENCES Messages(ID) ON DELETE CASCADE);"
+        "CREATE TABLE IF NOT EXISTS CardComments (ID TEXT PRIMARY KEY, CardID TEXT, SenderID TEXT, Content TEXT, Timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(CardID) REFERENCES KanbanCards(ID) ON DELETE CASCADE);"
+        "CREATE TABLE IF NOT EXISTS CardTags (ID TEXT PRIMARY KEY, CardID TEXT, TagName TEXT, Color TEXT, FOREIGN KEY(CardID) REFERENCES KanbanCards(ID) ON DELETE CASCADE);";
 
     bool result = executeQuery(sql);
     if (result) logSystemAction("INFO", "DB_INIT", "Veritabani tablolari basariyla yuklendi.");
@@ -447,11 +452,11 @@ bool DatabaseManager::joinServerByCode(std::string userId, const std::string& in
 
 bool DatabaseManager::kickMember(std::string serverId, std::string userId) { return removeMemberFromServer(serverId, userId); }
 
-std::vector<ServerMemberDetail> DatabaseManager::getServerMembersDetails(const std::string& serverId) {
+std::vector<DatabaseManager::ServerMemberDetail> DatabaseManager::getServerMembersDetails(const std::string& serverId) {
     std::vector<ServerMemberDetail> members;
-    std::string sql = "SELECT U.ID, U.Name, U.Status FROM ServerMembers SM JOIN Users U ON SM.UserID = U.ID WHERE SM.ServerID = ?;";
+    const char* sql = "SELECT U.ID, U.Name, U.Status FROM ServerMembers SM JOIN Users U ON SM.UserID = U.ID WHERE SM.ServerID = ?;";
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
         sqlite3_bind_text(stmt, 1, serverId.c_str(), -1, SQLITE_TRANSIENT);
         while (sqlite3_step(stmt) == SQLITE_ROW) {
             members.push_back({ SAFE_TEXT(0), SAFE_TEXT(1), SAFE_TEXT(2) });
@@ -473,11 +478,11 @@ bool DatabaseManager::logServerAction(const std::string& serverId, const std::st
     return s;
 }
 
-std::vector<ServerLog> DatabaseManager::getServerLogs(const std::string& serverId) {
+std::vector<DatabaseManager::ServerLog> DatabaseManager::getServerLogs(const std::string& serverId) {
     std::vector<ServerLog> logs;
-    std::string sql = "SELECT CreatedAt, Action, Details FROM ServerLogs WHERE ServerID = ? ORDER BY CreatedAt DESC LIMIT 50;";
+    const char* sql = "SELECT CreatedAt, Action, Details FROM ServerLogs WHERE ServerID = ? ORDER BY CreatedAt DESC LIMIT 50;";
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
         sqlite3_bind_text(stmt, 1, serverId.c_str(), -1, SQLITE_TRANSIENT);
         while (sqlite3_step(stmt) == SQLITE_ROW) {
             logs.push_back({ SAFE_TEXT(0), SAFE_TEXT(1), SAFE_TEXT(2) });
@@ -500,11 +505,11 @@ bool DatabaseManager::sendServerInvite(std::string serverId, std::string inviter
     return s;
 }
 
-std::vector<ServerInviteDTO> DatabaseManager::getPendingServerInvites(std::string userId) {
+std::vector<DatabaseManager::ServerInviteDTO> DatabaseManager::getPendingServerInvites(std::string userId) {
     std::vector<ServerInviteDTO> invites;
-    std::string sql = "SELECT I.ServerID, S.Name, U.Name, I.CreatedAt FROM ServerInvites I JOIN Servers S ON I.ServerID = S.ID JOIN Users U ON I.InviterID = U.ID WHERE I.InviteeID = ?;";
+    const char* sql = "SELECT I.ServerID, S.Name, U.Name, I.CreatedAt FROM ServerInvites I JOIN Servers S ON I.ServerID = S.ID JOIN Users U ON I.InviterID = U.ID WHERE I.InviteeID = ?;";
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
         sqlite3_bind_text(stmt, 1, userId.c_str(), -1, SQLITE_TRANSIENT);
         while (sqlite3_step(stmt) == SQLITE_ROW) {
             invites.push_back({ SAFE_TEXT(0), SAFE_TEXT(1), SAFE_TEXT(2), SAFE_TEXT(3) });
@@ -544,9 +549,9 @@ bool DatabaseManager::createRole(std::string serverId, std::string roleName, int
 
 std::vector<Role> DatabaseManager::getServerRoles(std::string serverId) {
     std::vector<Role> roles;
-    std::string sql = "SELECT ID, RoleName, Color, Hierarchy, Permissions FROM Roles WHERE ServerID = ?;";
+    const char* sql = "SELECT ID, RoleName, Color, Hierarchy, Permissions FROM Roles WHERE ServerID = ?;";
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
         sqlite3_bind_text(stmt, 1, serverId.c_str(), -1, SQLITE_TRANSIENT);
         while (sqlite3_step(stmt) == SQLITE_ROW) {
             roles.push_back(Role{ SAFE_TEXT(0), serverId, SAFE_TEXT(1), SAFE_TEXT(2), sqlite3_column_int(stmt, 3), sqlite3_column_int(stmt, 4) });
@@ -556,22 +561,26 @@ std::vector<Role> DatabaseManager::getServerRoles(std::string serverId) {
     return roles;
 }
 
-bool DatabaseManager::assignRole(std::string serverId, std::string userId, std::string roleId) { return true; }
+bool DatabaseManager::assignRole(std::string serverId, std::string userId, std::string roleId) { return true; } // İleride geliştirilecek
 
 // =============================================================
-// KANAL YÖNETİMİ
+// KANAL YÖNETİMİ (ÖZEL KANALLAR DAHİL)
 // =============================================================
 
-bool DatabaseManager::createChannel(std::string serverId, std::string name, int type) {
+bool DatabaseManager::createChannel(std::string serverId, std::string name, int type, bool isPrivate) {
     if (type == 3 && getServerKanbanCount(serverId) >= 1) return false;
+
     std::string id = Security::generateId(15);
-    const char* sql = "INSERT INTO Channels (ID, ServerID, Name, Type) VALUES (?, ?, ?, ?);";
+    const char* sql = "INSERT INTO Channels (ID, ServerID, Name, Type, IsPrivate) VALUES (?, ?, ?, ?, ?);";
     sqlite3_stmt* stmt;
+
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
     sqlite3_bind_text(stmt, 1, id.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 2, serverId.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 3, name.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 4, type);
+    sqlite3_bind_int(stmt, 5, isPrivate ? 1 : 0);
+
     bool s = (sqlite3_step(stmt) == SQLITE_DONE);
     sqlite3_finalize(stmt);
     return s;
@@ -598,14 +607,20 @@ bool DatabaseManager::deleteChannel(std::string channelId) {
     return s;
 }
 
-std::vector<Channel> DatabaseManager::getServerChannels(std::string serverId) {
+std::vector<Channel> DatabaseManager::getServerChannels(std::string serverId, std::string userId) {
     std::vector<Channel> channels;
-    std::string sql = "SELECT ID, Name, Type FROM Channels WHERE ServerID = ?;";
+    const char* sql = "SELECT ID, Name, Type, IsPrivate FROM Channels WHERE ServerID = ?;";
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
         sqlite3_bind_text(stmt, 1, serverId.c_str(), -1, SQLITE_TRANSIENT);
         while (sqlite3_step(stmt) == SQLITE_ROW) {
-            channels.push_back(Channel{ SAFE_TEXT(0), serverId, SAFE_TEXT(1), sqlite3_column_int(stmt, 2), false });
+            std::string chId = SAFE_TEXT(0);
+            bool isPriv = (sqlite3_column_int(stmt, 3) == 1);
+
+            if (isPriv && !userId.empty() && !hasChannelAccess(chId, userId)) continue;
+
+            channels.push_back(Channel{ chId, serverId, SAFE_TEXT(1), sqlite3_column_int(stmt, 2), isPriv });
         }
     }
     sqlite3_finalize(stmt);
@@ -613,10 +628,10 @@ std::vector<Channel> DatabaseManager::getServerChannels(std::string serverId) {
 }
 
 int DatabaseManager::getServerKanbanCount(std::string serverId) {
-    std::string sql = "SELECT COUNT(*) FROM Channels WHERE ServerID = ? AND Type = 3;";
+    const char* sql = "SELECT COUNT(*) FROM Channels WHERE ServerID = ? AND Type = 3;";
     sqlite3_stmt* stmt;
     int count = 0;
-    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
         sqlite3_bind_text(stmt, 1, serverId.c_str(), -1, SQLITE_TRANSIENT);
         if (sqlite3_step(stmt) == SQLITE_ROW) count = sqlite3_column_int(stmt, 0);
     }
@@ -626,9 +641,9 @@ int DatabaseManager::getServerKanbanCount(std::string serverId) {
 
 std::string DatabaseManager::getChannelServerId(const std::string& channelId) {
     std::string srvId = "";
-    std::string sql = "SELECT ServerID FROM Channels WHERE ID = ?;";
+    const char* sql = "SELECT ServerID FROM Channels WHERE ID = ?;";
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
         sqlite3_bind_text(stmt, 1, channelId.c_str(), -1, SQLITE_TRANSIENT);
         if (sqlite3_step(stmt) == SQLITE_ROW) srvId = SAFE_TEXT(0);
     }
@@ -637,13 +652,85 @@ std::string DatabaseManager::getChannelServerId(const std::string& channelId) {
 
 std::string DatabaseManager::getChannelName(const std::string& channelId) {
     std::string name = "";
-    std::string sql = "SELECT Name FROM Channels WHERE ID = ?;";
+    const char* sql = "SELECT Name FROM Channels WHERE ID = ?;";
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
         sqlite3_bind_text(stmt, 1, channelId.c_str(), -1, SQLITE_TRANSIENT);
         if (sqlite3_step(stmt) == SQLITE_ROW) name = SAFE_TEXT(0);
     }
     sqlite3_finalize(stmt); return name;
+}
+
+bool DatabaseManager::addMemberToChannel(std::string channelId, std::string userId) {
+    const char* sql = "INSERT OR IGNORE INTO ChannelMembers (ChannelID, UserID) VALUES (?, ?);";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, channelId.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, userId.c_str(), -1, SQLITE_TRANSIENT);
+    bool s = (sqlite3_step(stmt) == SQLITE_DONE);
+    sqlite3_finalize(stmt);
+    return s;
+}
+
+bool DatabaseManager::removeMemberFromChannel(std::string channelId, std::string userId) {
+    const char* sql = "DELETE FROM ChannelMembers WHERE ChannelID = ? AND UserID = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, channelId.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, userId.c_str(), -1, SQLITE_TRANSIENT);
+    bool s = (sqlite3_step(stmt) == SQLITE_DONE);
+    sqlite3_finalize(stmt);
+    return s;
+}
+
+bool DatabaseManager::hasChannelAccess(std::string channelId, std::string userId) {
+    if (isSystemAdmin(userId)) return true;
+
+    const char* privSql = "SELECT IsPrivate, ServerID FROM Channels WHERE ID = ?;";
+    sqlite3_stmt* privStmt;
+    bool isPriv = false;
+    std::string serverId = "";
+
+    if (sqlite3_prepare_v2(db, privSql, -1, &privStmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(privStmt, 1, channelId.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(privStmt) == SQLITE_ROW) {
+            isPriv = (sqlite3_column_int(privStmt, 0) == 1);
+            serverId = SAFE_TEXT(1);
+        }
+    }
+    sqlite3_finalize(privStmt);
+
+    if (!isPriv) return true;
+
+    const char* memSql = "SELECT 1 FROM ChannelMembers WHERE ChannelID = ? AND UserID = ?;";
+    sqlite3_stmt* memStmt;
+    bool hasAccess = false;
+    if (sqlite3_prepare_v2(db, memSql, -1, &memStmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(memStmt, 1, channelId.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(memStmt, 2, userId.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(memStmt) == SQLITE_ROW) hasAccess = true;
+    }
+    sqlite3_finalize(memStmt);
+
+    if (!hasAccess && !serverId.empty()) {
+        auto serverOpt = getServerDetails(serverId);
+        if (serverOpt && serverOpt->ownerId == userId) hasAccess = true;
+    }
+    return hasAccess;
+}
+
+std::vector<DatabaseManager::ServerMemberDetail> DatabaseManager::getChannelMembers(std::string channelId) {
+    std::vector<ServerMemberDetail> members;
+    const char* sql = "SELECT U.ID, U.Name, U.Status FROM ChannelMembers CM JOIN Users U ON CM.UserID = U.ID WHERE CM.ChannelID = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, channelId.c_str(), -1, SQLITE_TRANSIENT);
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            members.push_back({ SAFE_TEXT(0), SAFE_TEXT(1), SAFE_TEXT(2) });
+        }
+    }
+    sqlite3_finalize(stmt);
+    return members;
 }
 
 // =============================================================
@@ -655,10 +742,10 @@ std::string DatabaseManager::getOrCreateDMChannel(std::string user1Id, std::stri
     std::string u2 = std::max(user1Id, user2Id);
     std::string dmName = "dm_" + u1 + "_" + u2;
 
-    std::string sql = "SELECT ID FROM Channels WHERE Name = ? AND ServerID = '0';";
+    const char* sql = "SELECT ID FROM Channels WHERE Name = ? AND ServerID = '0';";
     sqlite3_stmt* stmt;
     std::string channelId = "";
-    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
         sqlite3_bind_text(stmt, 1, dmName.c_str(), -1, SQLITE_TRANSIENT);
         if (sqlite3_step(stmt) == SQLITE_ROW) channelId = SAFE_TEXT(0);
     }
@@ -704,7 +791,6 @@ bool DatabaseManager::updateMessage(std::string messageId, const std::string& ne
 }
 
 bool DatabaseManager::deleteMessage(std::string messageId) {
-    // Mesajı bul ve Arşive (ArchivedMessages) Kopyala
     const char* selectSql = "SELECT ChannelID, SenderID, Content FROM Messages WHERE ID = ?;";
     sqlite3_stmt* selectStmt;
 
@@ -730,7 +816,6 @@ bool DatabaseManager::deleteMessage(std::string messageId) {
     }
     sqlite3_finalize(selectStmt);
 
-    // Mesajı ana tablodan sil
     const char* deleteSql = "DELETE FROM Messages WHERE ID = ?;";
     sqlite3_stmt* deleteStmt;
     if (sqlite3_prepare_v2(db, deleteSql, -1, &deleteStmt, nullptr) != SQLITE_OK) return false;
@@ -755,6 +840,76 @@ std::vector<Message> DatabaseManager::getChannelMessages(std::string channelId, 
     }
     sqlite3_finalize(stmt);
     return messages;
+}
+
+// =============================================================
+// GELİŞMİŞ MESAJLAŞMA (REACTIONS & THREADS)
+// =============================================================
+
+bool DatabaseManager::addMessageReaction(std::string messageId, std::string userId, const std::string& emoji) {
+    const char* sql = "INSERT OR IGNORE INTO MessageReactions (MessageID, UserID, Emoji) VALUES (?, ?, ?);";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, messageId.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, userId.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, emoji.c_str(), -1, SQLITE_TRANSIENT);
+    bool s = (sqlite3_step(stmt) == SQLITE_DONE);
+    sqlite3_finalize(stmt);
+    return s;
+}
+
+bool DatabaseManager::removeMessageReaction(std::string messageId, std::string userId, const std::string& emoji) {
+    const char* sql = "DELETE FROM MessageReactions WHERE MessageID = ? AND UserID = ? AND Emoji = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, messageId.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, userId.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, emoji.c_str(), -1, SQLITE_TRANSIENT);
+    bool s = (sqlite3_step(stmt) == SQLITE_DONE);
+    sqlite3_finalize(stmt);
+    return s;
+}
+
+std::vector<ReactionDTO> DatabaseManager::getMessageReactions(std::string messageId) {
+    std::vector<ReactionDTO> reactions;
+    const char* sql = "SELECT UserID, Emoji FROM MessageReactions WHERE MessageID = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, messageId.c_str(), -1, SQLITE_TRANSIENT);
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            reactions.push_back({ messageId, SAFE_TEXT(0), SAFE_TEXT(1) });
+        }
+    }
+    sqlite3_finalize(stmt);
+    return reactions;
+}
+
+bool DatabaseManager::addThreadReply(std::string parentMessageId, std::string senderId, const std::string& content) {
+    std::string id = Security::generateId(15);
+    const char* sql = "INSERT INTO MessageReplies (ID, ParentMessageID, SenderID, Content) VALUES (?, ?, ?, ?);";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, id.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, parentMessageId.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, senderId.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 4, content.c_str(), -1, SQLITE_TRANSIENT);
+    bool s = (sqlite3_step(stmt) == SQLITE_DONE);
+    sqlite3_finalize(stmt);
+    return s;
+}
+
+std::vector<ThreadReplyDTO> DatabaseManager::getThreadReplies(std::string parentMessageId) {
+    std::vector<ThreadReplyDTO> replies;
+    const char* sql = "SELECT R.ID, R.SenderID, U.Name, R.Content, R.Timestamp FROM MessageReplies R JOIN Users U ON R.SenderID = U.ID WHERE R.ParentMessageID = ? ORDER BY R.Timestamp ASC;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, parentMessageId.c_str(), -1, SQLITE_TRANSIENT);
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            replies.push_back({ SAFE_TEXT(0), parentMessageId, SAFE_TEXT(1), SAFE_TEXT(2), SAFE_TEXT(3), SAFE_TEXT(4) });
+        }
+    }
+    sqlite3_finalize(stmt);
+    return replies;
 }
 
 // =============================================================
@@ -870,6 +1025,91 @@ bool DatabaseManager::moveCard(std::string cardId, std::string newListId, int ne
     bool s = (sqlite3_step(stmt) == SQLITE_DONE);
     sqlite3_finalize(stmt);
     return s;
+}
+
+// =============================================================
+// GELİŞMİŞ KANBAN (YORUMLAR VE ETİKETLER)
+// =============================================================
+
+bool DatabaseManager::addCardComment(std::string cardId, std::string senderId, const std::string& content) {
+    std::string id = Security::generateId(15);
+    const char* sql = "INSERT INTO CardComments (ID, CardID, SenderID, Content) VALUES (?, ?, ?, ?);";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, id.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, cardId.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, senderId.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 4, content.c_str(), -1, SQLITE_TRANSIENT);
+    bool s = (sqlite3_step(stmt) == SQLITE_DONE);
+    sqlite3_finalize(stmt);
+    return s;
+}
+
+std::vector<CardCommentDTO> DatabaseManager::getCardComments(std::string cardId) {
+    std::vector<CardCommentDTO> comments;
+    const char* sql = "SELECT C.ID, C.SenderID, U.Name, C.Content, C.Timestamp FROM CardComments C JOIN Users U ON C.SenderID = U.ID WHERE C.CardID = ? ORDER BY C.Timestamp ASC;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, cardId.c_str(), -1, SQLITE_TRANSIENT);
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            comments.push_back({ SAFE_TEXT(0), cardId, SAFE_TEXT(1), SAFE_TEXT(2), SAFE_TEXT(3), SAFE_TEXT(4) });
+        }
+    }
+    sqlite3_finalize(stmt);
+    return comments;
+}
+
+bool DatabaseManager::deleteCardComment(std::string commentId, std::string userId) {
+    bool isAdmin = isSystemAdmin(userId);
+    std::string sql;
+    if (isAdmin) sql = "DELETE FROM CardComments WHERE ID = ?;";
+    else sql = "DELETE FROM CardComments WHERE ID = ? AND SenderID = ?;";
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, commentId.c_str(), -1, SQLITE_TRANSIENT);
+    if (!isAdmin) sqlite3_bind_text(stmt, 2, userId.c_str(), -1, SQLITE_TRANSIENT);
+    bool s = (sqlite3_step(stmt) == SQLITE_DONE);
+    sqlite3_finalize(stmt);
+    return s;
+}
+
+bool DatabaseManager::addCardTag(std::string cardId, const std::string& tagName, const std::string& color) {
+    std::string id = Security::generateId(10);
+    const char* sql = "INSERT INTO CardTags (ID, CardID, TagName, Color) VALUES (?, ?, ?, ?);";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, id.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, cardId.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, tagName.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 4, color.c_str(), -1, SQLITE_TRANSIENT);
+    bool s = (sqlite3_step(stmt) == SQLITE_DONE);
+    sqlite3_finalize(stmt);
+    return s;
+}
+
+bool DatabaseManager::removeCardTag(std::string tagId) {
+    const char* sql = "DELETE FROM CardTags WHERE ID = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, tagId.c_str(), -1, SQLITE_TRANSIENT);
+    bool s = (sqlite3_step(stmt) == SQLITE_DONE);
+    sqlite3_finalize(stmt);
+    return s;
+}
+
+std::vector<CardTagDTO> DatabaseManager::getCardTags(std::string cardId) {
+    std::vector<CardTagDTO> tags;
+    const char* sql = "SELECT ID, TagName, Color FROM CardTags WHERE CardID = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, cardId.c_str(), -1, SQLITE_TRANSIENT);
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            tags.push_back({ SAFE_TEXT(0), cardId, SAFE_TEXT(1), SAFE_TEXT(2) });
+        }
+    }
+    sqlite3_finalize(stmt);
+    return tags;
 }
 
 // =============================================================

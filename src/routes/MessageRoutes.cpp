@@ -86,6 +86,84 @@ void MessageRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
             });
 
     // =============================================================
+    // API: MESAJA TEPKİ (EMOJI) EKLE (POST /api/messages/<id>/react)
+    // =============================================================
+    CROW_ROUTE(app, "/api/messages/<string>/react").methods(crow::HTTPMethod::POST)
+        ([&db](const crow::request& req, std::string messageId) {
+        if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
+
+        auto body = crow::json::load(req.body);
+        if (!body || !body.has("emoji")) return crow::response(400, "Emoji bilgisi gerekli");
+
+        std::string userId = Security::getUserIdFromHeader(&req);
+        std::string emoji = body["emoji"].s();
+
+        if (db.addMessageReaction(messageId, userId, emoji)) {
+            // Not: Gerçek zamanlı sistemde bu tepki WsRoutes üzerinden kanala broadcast edilmelidir.
+            return crow::response(201, "Tepki eklendi");
+        }
+        return crow::response(500, "Tepki eklenemedi");
+            });
+
+    // =============================================================
+    // API: MESAJDAN TEPKİYİ KALDIR (DELETE /api/messages/<id>/react)
+    // =============================================================
+    CROW_ROUTE(app, "/api/messages/<string>/react").methods(crow::HTTPMethod::DELETE)
+        ([&db](const crow::request& req, std::string messageId) {
+        if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
+
+        auto body = crow::json::load(req.body);
+        if (!body || !body.has("emoji")) return crow::response(400, "Emoji bilgisi gerekli");
+
+        std::string userId = Security::getUserIdFromHeader(&req);
+        std::string emoji = body["emoji"].s();
+
+        if (db.removeMessageReaction(messageId, userId, emoji)) {
+            return crow::response(200, "Tepki kaldirildi");
+        }
+        return crow::response(500, "Tepki kaldirilamadi");
+            });
+
+    // =============================================================
+    // API: MESAJA YANIT (THREAD) YAZ (POST /api/messages/<id>/reply)
+    // =============================================================
+    CROW_ROUTE(app, "/api/messages/<string>/reply").methods(crow::HTTPMethod::POST)
+        ([&db](const crow::request& req, std::string parentMessageId) {
+        if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
+
+        auto body = crow::json::load(req.body);
+        if (!body || !body.has("content")) return crow::response(400, "Yanit icerigi (content) gerekli");
+
+        std::string userId = Security::getUserIdFromHeader(&req);
+        std::string content = body["content"].s();
+
+        if (db.addThreadReply(parentMessageId, userId, content)) {
+            return crow::response(201, "Yanit eklendi");
+        }
+        return crow::response(500, "Yanit eklenemedi");
+            });
+
+    // =============================================================
+    // API: BİR MESAJIN YANITLARINI (THREAD) GETİR (GET /api/messages/<id>/replies)
+    // =============================================================
+    CROW_ROUTE(app, "/api/messages/<string>/replies").methods(crow::HTTPMethod::GET)
+        ([&db](const crow::request& req, std::string parentMessageId) {
+        if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
+
+        auto replies = db.getThreadReplies(parentMessageId);
+
+        crow::json::wvalue res;
+        for (size_t i = 0; i < replies.size(); ++i) {
+            res[i]["id"] = replies[i].id;
+            res[i]["sender_id"] = replies[i].sender_id;
+            res[i]["sender_name"] = replies[i].sender_name;
+            res[i]["content"] = replies[i].content;
+            res[i]["timestamp"] = replies[i].timestamp;
+        }
+        return crow::response(200, res);
+            });
+
+    // =============================================================
     // API: ÖZEL MESAJ (DM) KANALI OLUŞTUR VEYA GETİR (POST /api/users/dm)
     // =============================================================
     CROW_ROUTE(app, "/api/users/dm").methods(crow::HTTPMethod::POST)

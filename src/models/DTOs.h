@@ -60,3 +60,36 @@ struct ArchivedMessageDTO {
     std::string content;
     std::string deleted_at;
 };
+
+// [YENİ] Gelişmiş Mesajlaşma Modelleri
+struct ReactionDTO {
+    std::string message_id;
+    std::string user_id;
+    std::string emoji;
+};
+
+struct ThreadReplyDTO {
+    std::string id;
+    std::string parent_message_id;
+    std::string sender_id;
+    std::string sender_name;
+    std::string content;
+    std::string timestamp;
+};
+
+// [YENİ] Gelişmiş Kanban Modelleri
+struct CardCommentDTO {
+    std::string id;
+    std::string card_id;
+    std::string sender_id;
+    std::string sender_name;
+    std::string content;
+    std::string timestamp;
+};
+
+struct CardTagDTO {
+    std::string id;
+    std::string card_id;
+    std::string tag_name;
+    std::string color;
+};

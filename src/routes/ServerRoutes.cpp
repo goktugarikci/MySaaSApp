@@ -95,26 +95,31 @@ void ServerRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(500, "Sunucu silinirken hata olustu");
             });
 
+
     // =============================================================
-    // API: SUNUCUNUN KANALLARINI GETİR (GET /api/servers/<id>/channels)
-    // =============================================================
+        // API: SUNUCUNUN KANALLARINI GETİR (GÜNCELLENDİ: Özel Kanalları Filtreler)
+        // =============================================================
     CROW_ROUTE(app, "/api/servers/<string>/channels").methods(crow::HTTPMethod::GET)
         ([&db](const crow::request& req, std::string serverId) {
         if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
 
-        auto channels = db.getServerChannels(serverId);
+        std::string userId = Security::getUserIdFromHeader(&req);
+
+        // Sadece yetkisi olduğu kanalları çeker
+        auto channels = db.getServerChannels(serverId, userId);
 
         crow::json::wvalue res;
         for (size_t i = 0; i < channels.size(); ++i) {
             res[i]["id"] = channels[i].id;
             res[i]["name"] = channels[i].name;
             res[i]["type"] = channels[i].type;
+            res[i]["is_private"] = channels[i].isPrivate;
         }
         return crow::response(200, res);
             });
 
     // =============================================================
-    // API: YENİ KANAL OLUŞTUR (POST /api/servers/<id>/channels)
+    // API: YENİ KANAL OLUŞTUR (GÜNCELLENDİ: Özel Kanal Desteği)
     // =============================================================
     CROW_ROUTE(app, "/api/servers/<string>/channels").methods(crow::HTTPMethod::POST)
         ([&db](const crow::request& req, std::string serverId) {
@@ -126,12 +131,57 @@ void ServerRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         }
 
         std::string name = body["name"].s();
-        int type = body["type"].i(); // 0: Metin, 1: Ses/Video, 3: Kanban
+        int type = body["type"].i();
+        bool isPrivate = body.has("is_private") ? body["is_private"].b() : false;
 
-        if (db.createChannel(serverId, name, type)) {
+        // Kanalı oluştur
+        if (db.createChannel(serverId, name, type, isPrivate)) {
             return crow::response(201, "Kanal basariyla olusturuldu");
         }
-        return crow::response(403, "Kanal olusturulamadi (Kanban limitine takilmis olabilir)");
+        return crow::response(403, "Kanal olusturulamadi");
+            });
+
+    // =============================================================
+    // API: ÖZEL KANALA ÜYE EKLE (POST /api/channels/<id>/members)
+    // =============================================================
+    CROW_ROUTE(app, "/api/channels/<string>/members").methods(crow::HTTPMethod::POST)
+        ([&db](const crow::request& req, std::string channelId) {
+        if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
+
+        auto body = crow::json::load(req.body);
+        if (!body || !body.has("user_id")) return crow::response(400, "user_id gerekli");
+
+        std::string targetUserId = body["user_id"].s();
+        std::string myId = Security::getUserIdFromHeader(&req);
+
+        // Sadece kanal yetkisi olan biri başkasını ekleyebilir (Basit kontrol)
+        if (!db.hasChannelAccess(channelId, myId)) {
+            return crow::response(403, "Bu kanala uye ekleme yetkiniz yok");
+        }
+
+        if (db.addMemberToChannel(channelId, targetUserId)) {
+            return crow::response(200, "Uye ozel kanala eklendi");
+        }
+        return crow::response(500, "Uye eklenemedi");
+            });
+
+    // =============================================================
+    // API: ÖZEL KANALDAN ÜYE ÇIKAR (DELETE /api/channels/<channel_id>/members/<user_id>)
+    // =============================================================
+    CROW_ROUTE(app, "/api/channels/<string>/members/<string>").methods(crow::HTTPMethod::DELETE)
+        ([&db](const crow::request& req, std::string channelId, std::string targetUserId) {
+        if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
+
+        std::string myId = Security::getUserIdFromHeader(&req);
+
+        if (!db.hasChannelAccess(channelId, myId) && myId != targetUserId) {
+            return crow::response(403, "Yetkiniz yok");
+        }
+
+        if (db.removeMemberFromChannel(channelId, targetUserId)) {
+            return crow::response(200, "Uye kanaldan cikarildi");
+        }
+        return crow::response(500, "Islem basarisiz");
             });
 
     // =============================================================
