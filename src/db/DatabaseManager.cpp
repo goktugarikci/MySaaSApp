@@ -3,7 +3,12 @@
 #include <iostream>
 #include <algorithm> 
 
+// Standart Makro (Değişken adı 'stmt' olan yerler için)
 #define SAFE_TEXT(col) (reinterpret_cast<const char*>(sqlite3_column_text(stmt, col)) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, col)) : "")
+
+// Geliştirilmiş Makro (Farklı statement isimleri kullanılan yerler için Örn: privStmt, selectStmt)
+#define SAFE_TEXT_STMT(st, col) (reinterpret_cast<const char*>(sqlite3_column_text(st, col)) ? reinterpret_cast<const char*>(sqlite3_column_text(st, col)) : "")
+
 
 DatabaseManager::DatabaseManager(const std::string& path) : db_path(path), db(nullptr) {}
 
@@ -164,7 +169,7 @@ std::optional<User> DatabaseManager::getUserByGoogleId(const std::string& google
     sqlite3_bind_text(stmt, 1, googleId.c_str(), -1, SQLITE_TRANSIENT);
     std::optional<User> user = std::nullopt;
     if (sqlite3_step(stmt) == SQLITE_ROW) {
-        user = User{ SAFE_TEXT(0), SAFE_TEXT(1), SAFE_TEXT(2), "", sqlite3_column_int(stmt, 4) != 0, SAFE_TEXT(3), SAFE_TEXT(5), sqlite3_column_int(stmt, 6), SAFE_TEXT(7), SAFE_TEXT(8) };
+        user = User{ SAFE_TEXT(0), SAFE_TEXT(1), SAFE_TEXT(2), SAFE_TEXT(3), sqlite3_column_int(stmt, 4) != 0, SAFE_TEXT(5), "", sqlite3_column_int(stmt, 6), SAFE_TEXT(7), SAFE_TEXT(8) };
     }
     sqlite3_finalize(stmt);
     return user;
@@ -216,7 +221,7 @@ std::optional<User> DatabaseManager::getUser(const std::string& email) {
     sqlite3_bind_text(stmt, 1, email.c_str(), -1, SQLITE_TRANSIENT);
     std::optional<User> user = std::nullopt;
     if (sqlite3_step(stmt) == SQLITE_ROW) {
-        user = User{ SAFE_TEXT(0), SAFE_TEXT(1), SAFE_TEXT(2), "", sqlite3_column_int(stmt, 4) != 0, SAFE_TEXT(3), SAFE_TEXT(5), sqlite3_column_int(stmt, 6), SAFE_TEXT(7), SAFE_TEXT(8) };
+        user = User{ SAFE_TEXT(0), SAFE_TEXT(1), SAFE_TEXT(2), SAFE_TEXT(3), sqlite3_column_int(stmt, 4) != 0, SAFE_TEXT(5), "", sqlite3_column_int(stmt, 6), SAFE_TEXT(7), SAFE_TEXT(8) };
     }
     sqlite3_finalize(stmt);
     return user;
@@ -229,7 +234,7 @@ std::optional<User> DatabaseManager::getUserById(std::string id) {
     sqlite3_bind_text(stmt, 1, id.c_str(), -1, SQLITE_TRANSIENT);
     std::optional<User> user = std::nullopt;
     if (sqlite3_step(stmt) == SQLITE_ROW) {
-        user = User{ SAFE_TEXT(0), SAFE_TEXT(1), SAFE_TEXT(2), "", sqlite3_column_int(stmt, 4) != 0, SAFE_TEXT(3), SAFE_TEXT(5), sqlite3_column_int(stmt, 6), SAFE_TEXT(7), SAFE_TEXT(8) };
+        user = User{ SAFE_TEXT(0), SAFE_TEXT(1), SAFE_TEXT(2), SAFE_TEXT(3), sqlite3_column_int(stmt, 4) != 0, SAFE_TEXT(5), "", sqlite3_column_int(stmt, 6), SAFE_TEXT(7), SAFE_TEXT(8) };
     }
     sqlite3_finalize(stmt);
     return user;
@@ -302,7 +307,7 @@ std::vector<User> DatabaseManager::getAllUsers() {
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
         while (sqlite3_step(stmt) == SQLITE_ROW) {
-            users.push_back(User{ SAFE_TEXT(0), SAFE_TEXT(1), SAFE_TEXT(2), "", sqlite3_column_int(stmt, 4) != 0, SAFE_TEXT(3), SAFE_TEXT(5), 0, "", "" });
+            users.push_back(User{ SAFE_TEXT(0), SAFE_TEXT(1), SAFE_TEXT(2), SAFE_TEXT(3), sqlite3_column_int(stmt, 4) != 0, SAFE_TEXT(5), "", 0, "", "" });
         }
     }
     sqlite3_finalize(stmt);
@@ -318,7 +323,7 @@ std::vector<User> DatabaseManager::searchUsers(const std::string& searchQuery) {
         sqlite3_bind_text(stmt, 1, term.c_str(), -1, SQLITE_TRANSIENT);
         sqlite3_bind_text(stmt, 2, term.c_str(), -1, SQLITE_TRANSIENT);
         while (sqlite3_step(stmt) == SQLITE_ROW) {
-            users.push_back(User{ SAFE_TEXT(0), SAFE_TEXT(1), SAFE_TEXT(2), "", sqlite3_column_int(stmt, 4) != 0, SAFE_TEXT(3), SAFE_TEXT(5), 0, "", "" });
+            users.push_back(User{ SAFE_TEXT(0), SAFE_TEXT(1), SAFE_TEXT(2), SAFE_TEXT(3), sqlite3_column_int(stmt, 4) != 0, SAFE_TEXT(5), "", 0, "", "" });
         }
     }
     sqlite3_finalize(stmt);
@@ -381,7 +386,7 @@ std::vector<Server> DatabaseManager::getAllServers() {
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
         while (sqlite3_step(stmt) == SQLITE_ROW) {
-            servers.push_back(Server{ SAFE_TEXT(0), SAFE_TEXT(2), SAFE_TEXT(1), SAFE_TEXT(3), SAFE_TEXT(4), SAFE_TEXT(5), sqlite3_column_int(stmt, 6), {} });
+            servers.push_back(Server{ SAFE_TEXT(0), SAFE_TEXT(1), SAFE_TEXT(2), SAFE_TEXT(3), SAFE_TEXT(4), SAFE_TEXT(5), sqlite3_column_int(stmt, 6), {} });
         }
     }
     sqlite3_finalize(stmt);
@@ -395,7 +400,7 @@ std::vector<Server> DatabaseManager::getUserServers(std::string userId) {
     if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
         sqlite3_bind_text(stmt, 1, userId.c_str(), -1, SQLITE_TRANSIENT);
         while (sqlite3_step(stmt) == SQLITE_ROW) {
-            servers.push_back(Server{ SAFE_TEXT(0), SAFE_TEXT(2), SAFE_TEXT(1), SAFE_TEXT(3), SAFE_TEXT(4), SAFE_TEXT(5), sqlite3_column_int(stmt, 6), {} });
+            servers.push_back(Server{ SAFE_TEXT(0), SAFE_TEXT(1), SAFE_TEXT(2), SAFE_TEXT(3), SAFE_TEXT(4), SAFE_TEXT(5), sqlite3_column_int(stmt, 6), {} });
         }
     }
     sqlite3_finalize(stmt);
@@ -409,7 +414,7 @@ std::optional<Server> DatabaseManager::getServerDetails(std::string serverId) {
     sqlite3_bind_text(stmt, 1, serverId.c_str(), -1, SQLITE_TRANSIENT);
     std::optional<Server> server = std::nullopt;
     if (sqlite3_step(stmt) == SQLITE_ROW) {
-        server = Server{ SAFE_TEXT(0), SAFE_TEXT(2), SAFE_TEXT(1), SAFE_TEXT(3), SAFE_TEXT(4), SAFE_TEXT(5), 0, {} };
+        server = Server{ SAFE_TEXT(0), SAFE_TEXT(1), SAFE_TEXT(2), SAFE_TEXT(3), SAFE_TEXT(4), SAFE_TEXT(5), 0, {} };
     }
     sqlite3_finalize(stmt);
     return server;
@@ -452,7 +457,8 @@ bool DatabaseManager::joinServerByCode(std::string userId, const std::string& in
 
 bool DatabaseManager::kickMember(std::string serverId, std::string userId) { return removeMemberFromServer(serverId, userId); }
 
-std::vector<DatabaseManager::ServerMemberDetail> DatabaseManager::getServerMembersDetails(const std::string& serverId) {
+// DÜZELTME: Dönüş tipinden DatabaseManager:: öneki kaldırıldı
+std::vector<ServerMemberDetail> DatabaseManager::getServerMembersDetails(const std::string& serverId) {
     std::vector<ServerMemberDetail> members;
     const char* sql = "SELECT U.ID, U.Name, U.Status FROM ServerMembers SM JOIN Users U ON SM.UserID = U.ID WHERE SM.ServerID = ?;";
     sqlite3_stmt* stmt;
@@ -478,7 +484,8 @@ bool DatabaseManager::logServerAction(const std::string& serverId, const std::st
     return s;
 }
 
-std::vector<DatabaseManager::ServerLog> DatabaseManager::getServerLogs(const std::string& serverId) {
+// DÜZELTME: Dönüş tipinden DatabaseManager:: öneki kaldırıldı
+std::vector<ServerLog> DatabaseManager::getServerLogs(const std::string& serverId) {
     std::vector<ServerLog> logs;
     const char* sql = "SELECT CreatedAt, Action, Details FROM ServerLogs WHERE ServerID = ? ORDER BY CreatedAt DESC LIMIT 50;";
     sqlite3_stmt* stmt;
@@ -505,7 +512,8 @@ bool DatabaseManager::sendServerInvite(std::string serverId, std::string inviter
     return s;
 }
 
-std::vector<DatabaseManager::ServerInviteDTO> DatabaseManager::getPendingServerInvites(std::string userId) {
+// DÜZELTME: Dönüş tipinden DatabaseManager:: öneki kaldırıldı
+std::vector<ServerInviteDTO> DatabaseManager::getPendingServerInvites(std::string userId) {
     std::vector<ServerInviteDTO> invites;
     const char* sql = "SELECT I.ServerID, S.Name, U.Name, I.CreatedAt FROM ServerInvites I JOIN Servers S ON I.ServerID = S.ID JOIN Users U ON I.InviterID = U.ID WHERE I.InviteeID = ?;";
     sqlite3_stmt* stmt;
@@ -561,7 +569,7 @@ std::vector<Role> DatabaseManager::getServerRoles(std::string serverId) {
     return roles;
 }
 
-bool DatabaseManager::assignRole(std::string serverId, std::string userId, std::string roleId) { return true; } // İleride geliştirilecek
+bool DatabaseManager::assignRole(std::string serverId, std::string userId, std::string roleId) { return true; }
 
 // =============================================================
 // KANAL YÖNETİMİ (ÖZEL KANALLAR DAHİL)
@@ -687,7 +695,7 @@ bool DatabaseManager::hasChannelAccess(std::string channelId, std::string userId
     if (isSystemAdmin(userId)) return true;
 
     const char* privSql = "SELECT IsPrivate, ServerID FROM Channels WHERE ID = ?;";
-    sqlite3_stmt* privStmt;
+    sqlite3_stmt* privStmt; // FARKLI İSİM
     bool isPriv = false;
     std::string serverId = "";
 
@@ -695,7 +703,8 @@ bool DatabaseManager::hasChannelAccess(std::string channelId, std::string userId
         sqlite3_bind_text(privStmt, 1, channelId.c_str(), -1, SQLITE_TRANSIENT);
         if (sqlite3_step(privStmt) == SQLITE_ROW) {
             isPriv = (sqlite3_column_int(privStmt, 0) == 1);
-            serverId = SAFE_TEXT(1);
+            // DÜZELTME: stmt yerine privStmt parametresi geçildi
+            serverId = SAFE_TEXT_STMT(privStmt, 1);
         }
     }
     sqlite3_finalize(privStmt);
@@ -719,7 +728,8 @@ bool DatabaseManager::hasChannelAccess(std::string channelId, std::string userId
     return hasAccess;
 }
 
-std::vector<DatabaseManager::ServerMemberDetail> DatabaseManager::getChannelMembers(std::string channelId) {
+// DÜZELTME: Dönüş tipinden DatabaseManager:: öneki kaldırıldı
+std::vector<ServerMemberDetail> DatabaseManager::getChannelMembers(std::string channelId) {
     std::vector<ServerMemberDetail> members;
     const char* sql = "SELECT U.ID, U.Name, U.Status FROM ChannelMembers CM JOIN Users U ON CM.UserID = U.ID WHERE CM.ChannelID = ?;";
     sqlite3_stmt* stmt;
@@ -792,15 +802,16 @@ bool DatabaseManager::updateMessage(std::string messageId, const std::string& ne
 
 bool DatabaseManager::deleteMessage(std::string messageId) {
     const char* selectSql = "SELECT ChannelID, SenderID, Content FROM Messages WHERE ID = ?;";
-    sqlite3_stmt* selectStmt;
+    sqlite3_stmt* selectStmt; // FARKLI İSİM
 
     if (sqlite3_prepare_v2(db, selectSql, -1, &selectStmt, nullptr) == SQLITE_OK) {
         sqlite3_bind_text(selectStmt, 1, messageId.c_str(), -1, SQLITE_TRANSIENT);
 
         if (sqlite3_step(selectStmt) == SQLITE_ROW) {
-            std::string channelId = SAFE_TEXT(0);
-            std::string senderId = SAFE_TEXT(1);
-            std::string content = SAFE_TEXT(2);
+            // DÜZELTME: stmt yerine selectStmt parametresi geçildi
+            std::string channelId = SAFE_TEXT_STMT(selectStmt, 0);
+            std::string senderId = SAFE_TEXT_STMT(selectStmt, 1);
+            std::string content = SAFE_TEXT_STMT(selectStmt, 2);
 
             const char* insertSql = "INSERT INTO ArchivedMessages (ID, OriginalChannelID, SenderID, Content) VALUES (?, ?, ?, ?);";
             sqlite3_stmt* insertStmt;
@@ -919,7 +930,7 @@ std::vector<ThreadReplyDTO> DatabaseManager::getThreadReplies(std::string parent
 std::vector<KanbanList> DatabaseManager::getKanbanBoard(std::string channelId) {
     std::vector<KanbanList> board;
     const char* sql = "SELECT ID, Title, Position FROM KanbanLists WHERE ChannelID = ? ORDER BY Position ASC;";
-    sqlite3_stmt* stmt;
+    sqlite3_stmt* stmt; // Normal sorgu için stmt
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
         sqlite3_bind_text(stmt, 1, channelId.c_str(), -1, SQLITE_TRANSIENT);
         while (sqlite3_step(stmt) == SQLITE_ROW) {
@@ -927,11 +938,12 @@ std::vector<KanbanList> DatabaseManager::getKanbanBoard(std::string channelId) {
             std::vector<KanbanCard> cards;
 
             const char* cardSql = "SELECT ID, Title, Description, Priority, Position FROM KanbanCards WHERE ListID = ? ORDER BY Position ASC;";
-            sqlite3_stmt* cardStmt;
+            sqlite3_stmt* cardStmt; // İç sorgu için cardStmt
             if (sqlite3_prepare_v2(db, cardSql, -1, &cardStmt, nullptr) == SQLITE_OK) {
                 sqlite3_bind_text(cardStmt, 1, listId.c_str(), -1, SQLITE_TRANSIENT);
                 while (sqlite3_step(cardStmt) == SQLITE_ROW) {
-                    cards.push_back(KanbanCard{ SAFE_TEXT(0), listId, SAFE_TEXT(1), SAFE_TEXT(2), sqlite3_column_int(cardStmt, 3), sqlite3_column_int(cardStmt, 4) });
+                    // DÜZELTME: stmt yerine cardStmt kullanıldı
+                    cards.push_back(KanbanCard{ SAFE_TEXT_STMT(cardStmt, 0), listId, SAFE_TEXT_STMT(cardStmt, 1), SAFE_TEXT_STMT(cardStmt, 2), sqlite3_column_int(cardStmt, 3), sqlite3_column_int(cardStmt, 4) });
                 }
             }
             sqlite3_finalize(cardStmt);
@@ -1175,7 +1187,7 @@ std::vector<User> DatabaseManager::getFriendsList(std::string myId) {
         sqlite3_bind_text(stmt, 2, myId.c_str(), -1, SQLITE_TRANSIENT);
         sqlite3_bind_text(stmt, 3, myId.c_str(), -1, SQLITE_TRANSIENT);
         while (sqlite3_step(stmt) == SQLITE_ROW) {
-            friends.push_back(User{ SAFE_TEXT(0), SAFE_TEXT(1), SAFE_TEXT(2), "", sqlite3_column_int(stmt, 4) != 0, SAFE_TEXT(3), SAFE_TEXT(5), 0, "", "" });
+            friends.push_back(User{ SAFE_TEXT(0), SAFE_TEXT(1), SAFE_TEXT(2), SAFE_TEXT(3), sqlite3_column_int(stmt, 4) != 0, SAFE_TEXT(5), "", 0, "", "" });
         }
     }
     sqlite3_finalize(stmt);

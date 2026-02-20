@@ -2,11 +2,12 @@
 #include "../utils/Security.h"
 #include <crow/json.h>
 
-void KanbanRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
+// WINDOWS MAKRO ÇAKIŞMASI ÇÖZÜMÜ
+#ifdef _WIN32
+#undef DELETE
+#endif
 
-    // =============================================================
-    // API: KANBAN PANOSUNU VE KARTLARI GETİR (GET /api/channels/<id>/kanban)
-    // =============================================================
+void KanbanRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
     CROW_ROUTE(app, "/api/channels/<string>/kanban").methods(crow::HTTPMethod::GET)
         ([&db](const crow::request& req, std::string channelId) {
         if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
@@ -30,9 +31,6 @@ void KanbanRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(200, res);
             });
 
-    // =============================================================
-    // API: YENİ KANBAN LİSTESİ OLUŞTUR (POST /api/channels/<id>/kanban/lists)
-    // =============================================================
     CROW_ROUTE(app, "/api/channels/<string>/kanban/lists").methods(crow::HTTPMethod::POST)
         ([&db](const crow::request& req, std::string channelId) {
         if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
@@ -48,15 +46,12 @@ void KanbanRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(500, "Liste olusturulamadi");
             });
 
-    // =============================================================
-    // API: KANBAN LİSTESİNİ GÜNCELLE (PUT /api/kanban/lists/<id>)
-    // =============================================================
     CROW_ROUTE(app, "/api/kanban/lists/<string>").methods(crow::HTTPMethod::PUT)
         ([&db](const crow::request& req, std::string listId) {
         if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
 
         auto body = crow::json::load(req.body);
-        if (!body || !body.has("title") || !body.has("position")) return crow::response(400, "Eksik parametre (title, position)");
+        if (!body || !body.has("title") || !body.has("position")) return crow::response(400, "Eksik parametre");
 
         std::string title = body["title"].s();
         int position = body["position"].i();
@@ -67,9 +62,6 @@ void KanbanRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(500, "Liste guncellenemedi");
             });
 
-    // =============================================================
-    // API: KANBAN LİSTESİNİ SİL (DELETE /api/kanban/lists/<id>)
-    // =============================================================
     CROW_ROUTE(app, "/api/kanban/lists/<string>").methods(crow::HTTPMethod::DELETE)
         ([&db](const crow::request& req, std::string listId) {
         if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
@@ -80,9 +72,6 @@ void KanbanRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(500, "Liste silinemedi");
             });
 
-    // =============================================================
-    // API: LİSTEYE YENİ KART EKLEME (POST /api/kanban/lists/<id>/cards)
-    // =============================================================
     CROW_ROUTE(app, "/api/kanban/lists/<string>/cards").methods(crow::HTTPMethod::POST)
         ([&db](const crow::request& req, std::string listId) {
         if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
@@ -91,8 +80,8 @@ void KanbanRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         if (!body || !body.has("title")) return crow::response(400, "Kart basligi (title) gerekli");
 
         std::string title = body["title"].s();
-        std::string desc = body.has("description") ? body["description"].s() : "";
-        int priority = body.has("priority") ? body["priority"].i() : 0; // 0: Dusuk, 1: Orta, 2: Yuksek
+        std::string desc = body.has("description") ? std::string(body["description"].s()) : std::string("");
+        int priority = body.has("priority") ? body["priority"].i() : 0;
 
         if (db.createKanbanCard(listId, title, desc, priority)) {
             return crow::response(201, "Kart basariyla olusturuldu");
@@ -100,9 +89,6 @@ void KanbanRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(500, "Kart olusturulamadi");
             });
 
-    // =============================================================
-    // API: KARTI GÜNCELLE (PUT /api/kanban/cards/<id>)
-    // =============================================================
     CROW_ROUTE(app, "/api/kanban/cards/<string>").methods(crow::HTTPMethod::PUT)
         ([&db](const crow::request& req, std::string cardId) {
         if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
@@ -111,7 +97,7 @@ void KanbanRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         if (!body || !body.has("title")) return crow::response(400, "Eksik parametre");
 
         std::string title = body["title"].s();
-        std::string desc = body.has("description") ? body["description"].s() : "";
+        std::string desc = body.has("description") ? std::string(body["description"].s()) : std::string("");
         int priority = body.has("priority") ? body["priority"].i() : 0;
 
         if (db.updateKanbanCard(cardId, title, desc, priority)) {
@@ -120,9 +106,6 @@ void KanbanRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(500, "Kart guncellenemedi");
             });
 
-    // =============================================================
-    // API: KARTI SİL (DELETE /api/kanban/cards/<id>)
-    // =============================================================
     CROW_ROUTE(app, "/api/kanban/cards/<string>").methods(crow::HTTPMethod::DELETE)
         ([&db](const crow::request& req, std::string cardId) {
         if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
@@ -133,10 +116,6 @@ void KanbanRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(500, "Kart silinemedi");
             });
 
-    // =============================================================
-    // API: KARTI BAŞKA BİR LİSTEYE VEYA SIRAYA TAŞI (POST /api/kanban/cards/<id>/move)
-    // Not: Bu islem WebSocket uzerinden de yapilir ama REST karsiligi da bulunmalidir.
-    // =============================================================
     CROW_ROUTE(app, "/api/kanban/cards/<string>/move").methods(crow::HTTPMethod::POST)
         ([&db](const crow::request& req, std::string cardId) {
         if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
@@ -153,5 +132,93 @@ void KanbanRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
             return crow::response(200, "Kart tasindi");
         }
         return crow::response(500, "Kart tasinamadi");
+            });
+
+    CROW_ROUTE(app, "/api/kanban/cards/<string>/comments").methods(crow::HTTPMethod::GET)
+        ([&db](const crow::request& req, std::string cardId) {
+        if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
+
+        auto comments = db.getCardComments(cardId);
+
+        crow::json::wvalue res;
+        for (size_t i = 0; i < comments.size(); ++i) {
+            res[i]["id"] = comments[i].id;
+            res[i]["sender_id"] = comments[i].sender_id;
+            res[i]["sender_name"] = comments[i].sender_name;
+            res[i]["content"] = comments[i].content;
+            res[i]["timestamp"] = comments[i].timestamp;
+        }
+        return crow::response(200, res);
+            });
+
+    CROW_ROUTE(app, "/api/kanban/cards/<string>/comments").methods(crow::HTTPMethod::POST)
+        ([&db](const crow::request& req, std::string cardId) {
+        if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
+
+        auto body = crow::json::load(req.body);
+        if (!body || !body.has("content")) return crow::response(400, "Yorum icerigi gerekli");
+
+        std::string userId = Security::getUserIdFromHeader(&req);
+        std::string content = body["content"].s();
+
+        if (db.addCardComment(cardId, userId, content)) {
+            return crow::response(201, "Yorum eklendi");
+        }
+        return crow::response(500, "Yorum eklenemedi");
+            });
+
+    CROW_ROUTE(app, "/api/kanban/comments/<string>").methods(crow::HTTPMethod::DELETE)
+        ([&db](const crow::request& req, std::string commentId) {
+        if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
+
+        std::string userId = Security::getUserIdFromHeader(&req);
+
+        if (db.deleteCardComment(commentId, userId)) {
+            return crow::response(200, "Yorum silindi");
+        }
+        return crow::response(403, "Bu yorumu silmeye yetkiniz yok veya yorum bulunamadi");
+            });
+
+    CROW_ROUTE(app, "/api/kanban/cards/<string>/tags").methods(crow::HTTPMethod::GET)
+        ([&db](const crow::request& req, std::string cardId) {
+        if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
+
+        auto tags = db.getCardTags(cardId);
+
+        crow::json::wvalue res;
+        for (size_t i = 0; i < tags.size(); ++i) {
+            res[i]["id"] = tags[i].id;
+            res[i]["tag_name"] = tags[i].tag_name;
+            res[i]["color"] = tags[i].color;
+        }
+        return crow::response(200, res);
+            });
+
+    CROW_ROUTE(app, "/api/kanban/cards/<string>/tags").methods(crow::HTTPMethod::POST)
+        ([&db](const crow::request& req, std::string cardId) {
+        if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
+
+        auto body = crow::json::load(req.body);
+        if (!body || !body.has("tag_name") || !body.has("color")) {
+            return crow::response(400, "Eksik parametre");
+        }
+
+        std::string tagName = body["tag_name"].s();
+        std::string color = body["color"].s();
+
+        if (db.addCardTag(cardId, tagName, color)) {
+            return crow::response(201, "Etiket eklendi");
+        }
+        return crow::response(500, "Etiket eklenemedi");
+            });
+
+    CROW_ROUTE(app, "/api/kanban/tags/<string>").methods(crow::HTTPMethod::DELETE)
+        ([&db](const crow::request& req, std::string tagId) {
+        if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
+
+        if (db.removeCardTag(tagId)) {
+            return crow::response(200, "Etiket kaldirildi");
+        }
+        return crow::response(500, "Etiket kaldirilamadi");
             });
 }

@@ -3,10 +3,6 @@
 #include <crow/json.h>
 
 void UserRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
-
-    // =============================================================
-    // API: KENDİ PROFİL BİLGİLERİNİ GETİR (GET /api/users/me)
-    // =============================================================
     CROW_ROUTE(app, "/api/users/me").methods(crow::HTTPMethod::GET)
         ([&db](const crow::request& req) {
         if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
@@ -26,9 +22,6 @@ void UserRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(404, "Kullanici bulunamadi");
             });
 
-    // =============================================================
-    // API: KULLANICI ARAMA (GET /api/users/search?q=aranacak_kelime)
-    // =============================================================
     CROW_ROUTE(app, "/api/users/search").methods(crow::HTTPMethod::GET)
         ([&db](const crow::request& req) {
         if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
@@ -46,9 +39,6 @@ void UserRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(200, res);
             });
 
-    // =============================================================
-    // API: ARKADAŞLIK İSTEĞİ GÖNDER (POST /api/users/friends/request)
-    // =============================================================
     CROW_ROUTE(app, "/api/users/friends/request").methods(crow::HTTPMethod::POST)
         ([&db](const crow::request& req) {
         if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
@@ -65,9 +55,6 @@ void UserRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(400, "Istek gonderilemedi veya zaten istek var");
             });
 
-    // =============================================================
-    // API: BEKLEYEN ARKADAŞLIK İSTEKLERİNİ GETİR (GET /api/users/friends/pending)
-    // =============================================================
     CROW_ROUTE(app, "/api/users/friends/pending").methods(crow::HTTPMethod::GET)
         ([&db](const crow::request& req) {
         if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
@@ -85,16 +72,13 @@ void UserRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(200, res);
             });
 
-    // =============================================================
-    // API: ARKADAŞLIK İSTEĞİNİ KABUL ET VEYA REDDET (POST /api/users/friends/resolve)
-    // =============================================================
     CROW_ROUTE(app, "/api/users/friends/resolve").methods(crow::HTTPMethod::POST)
         ([&db](const crow::request& req) {
         if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
 
         auto body = crow::json::load(req.body);
         if (!body || !body.has("requester_id") || !body.has("accept")) {
-            return crow::response(400, "Eksik parametreler (requester_id, accept)");
+            return crow::response(400, "Eksik parametreler");
         }
 
         std::string myId = Security::getUserIdFromHeader(&req);
@@ -110,9 +94,6 @@ void UserRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(400, "Islem basarisiz");
             });
 
-    // =============================================================
-    // API: ARKADAŞ LİSTESİNİ GETİR (GET /api/users/friends)
-    // =============================================================
     CROW_ROUTE(app, "/api/users/friends").methods(crow::HTTPMethod::GET)
         ([&db](const crow::request& req) {
         if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
@@ -130,9 +111,6 @@ void UserRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(200, res);
             });
 
-    // =============================================================
-    // API: BİLDİRİMLERİ GETİR (GET /api/users/notifications)
-    // =============================================================
     CROW_ROUTE(app, "/api/users/notifications").methods(crow::HTTPMethod::GET)
         ([&db](const crow::request& req) {
         if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
@@ -145,20 +123,17 @@ void UserRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
             res[i]["id"] = notifs[i].id;
             res[i]["message"] = notifs[i].message;
             res[i]["type"] = notifs[i].type;
-            res[i]["created_at"] = notifs[i].createdAt;
+            res[i]["created_at"] = notifs[i].created_at; // DÜZELTİLDİ: createdAt yerine created_at
         }
         return crow::response(200, res);
             });
 
-    // =============================================================
-    // API: BİLDİRİMİ OKUNDU İŞARETLE (POST /api/users/notifications/<int>/read)
-    // =============================================================
     CROW_ROUTE(app, "/api/users/notifications/<int>/read").methods(crow::HTTPMethod::POST)
         ([&db](const crow::request& req, int notifId) {
         if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
 
         if (db.markNotificationAsRead(notifId)) {
-            return crow::response(200, "Bildirim okundu olarak isaretlendi");
+            return crow::response(200, "Bildirim okundu");
         }
         return crow::response(400, "Islem basarisiz");
             });

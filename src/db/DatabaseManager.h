@@ -2,16 +2,18 @@
 #include <string>
 #include <vector>
 #include <sqlite3.h>
-#include <optional>
+#include <optional>+
 
-// MODELLERİ DAHİL ET
+// Tüm Structları (DTO) Class Dışında (Global Kapsamda) Tanımlıyoruz
 #include "../models/User.h"
 #include "../models/Server.h"
 #include "../models/Message.H"
 #include "../models/Kanban.h"
 #include "../models/Payment.h"
 #include "../models/Requests.h"
-#include "../models/DTOs.h" // Yeni taşıdığımız modeller
+#include "../models/DTOs.h" 
+
+
 
 class DatabaseManager {
 private:
@@ -27,10 +29,11 @@ public:
     void close();
     bool initTables();
 
-    // --- SİSTEM & LOGLAMA (ADMIN) ---
+    // Veri Çekme Metotları
     SystemStats getSystemStats();
     bool isSystemAdmin(std::string userId);
     bool logSystemAction(const std::string& level, const std::string& action, const std::string& details);
+
     std::vector<SystemLogDTO> getSystemLogs(int limit = 100);
     std::vector<ArchivedMessageDTO> getArchivedMessages(int limit = 100);
 
