@@ -1,3 +1,4 @@
+
 {
   "name": "mysaasapp",
   "version-string": "0.1.0",
@@ -11,6 +12,7 @@
     "cpr",
     "glfw3",
     "opengl",
+    "jwt-cpp",
     {
       "name": "imgui",
       "features": [
