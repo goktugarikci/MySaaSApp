@@ -567,15 +567,7 @@ int main() {
         }
         return crow::response(500);
             });
-
-    CROW_ROUTE(app, "/api/lists/<string>/cards").methods("POST"_method)
-        ([&db](const crow::request& req, std::string listId) {
-        if (!checkAuth(req, db)) return crow::response(401);
-        auto x = crow::json::load(req.body);
-        if (!x || !x.has("title") || !x.has("description") || !x.has("priority")) return crow::response(400);
-        if (db.createKanbanCard(listId, std::string(x["title"].s()), std::string(x["description"].s()), x["priority"].i())) return crow::response(201);
-        return crow::response(500);
-            });
+    
 
     CROW_ROUTE(app, "/api/cards/<string>").methods("PUT"_method, "DELETE"_method)
         ([&db](const crow::request& req, std::string cardId) {
@@ -791,6 +783,177 @@ int main() {
         return crow::response(200, res);
             });
 
+    // --- ARKADAŞ ENGELLEME CRUD ---
+    CROW_ROUTE(app, "/api/friends/blocks").methods("GET"_method, "POST"_method)
+        ([&db](const crow::request& req) {
+        if (!checkAuth(req, db)) return crow::response(401);
+        std::string myId = getUserIdFromHeader(req);
+
+        if (req.method == "GET"_method) {
+            // Engellenen kişileri listele
+            auto blockedList = db.getBlockedUsers(myId);
+            crow::json::wvalue res;
+            for (size_t i = 0; i < blockedList.size(); i++) res[i] = blockedList[i].toJson();
+            return crow::response(200, res);
+        }
+        else {
+            // Birini engelle
+            auto x = crow::json::load(req.body);
+            if (!x || !x.has("target_id")) return crow::response(400);
+            std::string targetId = std::string(x["target_id"].s());
+
+            // Eğer arkadaşsa, önce arkadaşlıktan çıkar, sonra engelle
+            db.rejectOrRemoveFriend(targetId, myId);
+            if (db.blockUser(myId, targetId)) return crow::response(201, "Kullanici engellendi.");
+            return crow::response(500);
+        }
+            });
+
+    CROW_ROUTE(app, "/api/friends/blocks/<string>").methods("DELETE"_method)
+        ([&db](const crow::request& req, std::string targetId) {
+        if (!checkAuth(req, db)) return crow::response(401);
+        if (db.unblockUser(getUserIdFromHeader(req), targetId)) return crow::response(200, "Engel kaldirildi.");
+        return crow::response(500);
+            });
+
+    // --- SUNUCU AYARLARI (Server Settings CRUD) ---
+    CROW_ROUTE(app, "/api/servers/<string>/settings").methods("GET"_method, "PUT"_method)
+        ([&db](const crow::request& req, std::string serverId) {
+        if (!checkAuth(req, db)) return crow::response(401);
+        std::string myId = getUserIdFromHeader(req);
+
+        // Sadece Kurucu veya 'Admin' yetkisine sahip kişiler ayar değiştirebilir
+        if (!db.hasServerPermission(serverId, myId, "ADMIN")) return crow::response(403, "Yetkiniz yetersiz.");
+
+        if (req.method == "GET"_method) {
+            std::string settingsJson = db.getServerSettings(serverId);
+            return crow::response(200, crow::json::load(settingsJson));
+        }
+        else {
+            if (db.updateServerSettings(serverId, req.body)) return crow::response(200, "Ayarlar guncellendi.");
+            return crow::response(500);
+        }
+            });
+
+    // --- ROL DÜZENLEME VE SİLME (Role CRUD) ---
+    CROW_ROUTE(app, "/api/roles/<string>").methods("PUT"_method, "DELETE"_method)
+        ([&db](const crow::request& req, std::string roleId) {
+        if (!checkAuth(req, db)) return crow::response(401);
+
+        std::string serverId = db.getServerIdByRoleId(roleId);
+        // Sadece Kurucu Rol Silebilir veya Düzenleyebilir
+        auto srv = db.getServerDetails(serverId);
+        if (!srv || srv->owner_id != getUserIdFromHeader(req)) return crow::response(403);
+
+        if (req.method == "PUT"_method) {
+            auto x = crow::json::load(req.body);
+            if (!x || !x.has("name") || !x.has("hierarchy") || !x.has("permissions")) return crow::response(400);
+            if (db.updateRole(roleId, std::string(x["name"].s()), x["hierarchy"].i(), x["permissions"].i())) return crow::response(200);
+        }
+        else {
+            if (db.deleteRole(roleId)) return crow::response(200);
+        }
+        return crow::response(500);
+            });
+
+    // --- ÜYEYE ROL ATAMA (Assign Role) ---
+    CROW_ROUTE(app, "/api/servers/<string>/members/<string>/roles").methods("POST"_method)
+        ([&db](const crow::request& req, std::string serverId, std::string targetUserId) {
+        if (!checkAuth(req, db)) return crow::response(401);
+        std::string myId = getUserIdFromHeader(req);
+
+        // Sadece Admin veya Kurucu rol atayabilir
+        if (!db.hasServerPermission(serverId, myId, "ADMIN") && db.getServerDetails(serverId)->owner_id != myId) {
+            return crow::response(403, "Rol atama yetkiniz yok.");
+        }
+
+        auto x = crow::json::load(req.body);
+        if (!x || !x.has("role_id")) return crow::response(400);
+        if (db.assignRoleToMember(serverId, targetUserId, std::string(x["role_id"].s()))) return crow::response(200, "Rol atandi.");
+        return crow::response(500);
+            });
+
+    // --- KANBAN KARTINA KİŞİ ATAMA (Sadece Sunucu Üyeleri) ---
+    CROW_ROUTE(app, "/api/cards/<string>/assign").methods("PUT"_method)
+        ([&db](const crow::request& req, std::string cardId) {
+        if (!checkAuth(req, db)) return crow::response(401);
+        auto x = crow::json::load(req.body);
+        if (!x || !x.has("assignee_id")) return crow::response(400);
+
+        std::string assigneeId = std::string(x["assignee_id"].s());
+        std::string serverId = db.getServerIdByCardId(cardId);
+
+        // Güvenlik: Atanacak kişi bu sunucunun üyesi mi?
+        if (!db.isUserInServer(serverId, assigneeId)) {
+            return crow::response(400, "Hata: Bu kisi sunucunun bir uyesi degil. Sadece uyeler atanabilir.");
+        }
+
+        if (db.assignUserToCard(cardId, assigneeId)) return crow::response(200, "Kisi karta atandi.");
+        return crow::response(500);
+            });
+
+    // --- KANBAN KARTI TAMAMLANMA DURUMU (Is Completed) ---
+    CROW_ROUTE(app, "/api/cards/<string>/status").methods("PUT"_method)
+        ([&db](const crow::request& req, std::string cardId) {
+        if (!checkAuth(req, db)) return crow::response(401);
+        auto x = crow::json::load(req.body);
+        if (!x || !x.has("is_completed")) return crow::response(400);
+
+        if (db.updateCardCompletion(cardId, x["is_completed"].b())) return crow::response(200, "Kart durumu guncellendi.");
+        return crow::response(500);
+            });
+
+    // --- ENTERPRISE VS NORMAL KULLANICI KANBAN LİMİT KONTROLÜ ---
+    // (Kart oluşturma POST route'unuzun içine şu mantığı ekleyebilirsiniz)
+    /* auto user = db.getUserById(myId);
+       int cardCount = db.getListCardCount(listId);
+       if (user->subscription_level == 0 && cardCount >= 10) {
+           return crow::response(403, "Standart kullanicilar bir listede en fazla 10 kart olusturabilir. Limitsiz kullanim icin Enterprise'a gecin.");
+       }
+    */
+    CROW_ROUTE(app, "/api/lists/<string>/cards").methods("POST"_method)
+        ([&db](const crow::request& req, std::string listId) {
+        if (!checkAuth(req, db)) return crow::response(401);
+        auto x = crow::json::load(req.body);
+        if (!x || !x.has("title") || !x.has("description") || !x.has("priority")) return crow::response(400);
+
+        // Ek dosya veya görsel varsa URL'yi al, yoksa boş bırak
+        std::string attachmentUrl = x.has("attachment_url") ? std::string(x["attachment_url"].s()) : "";
+
+        // Atanacak kişi (Assignee) bilgisi varsa al
+        std::string assigneeId = x.has("assignee_id") ? std::string(x["assignee_id"].s()) : "";
+
+        if (db.createKanbanCard(listId, std::string(x["title"].s()), std::string(x["description"].s()), x["priority"].i(), assigneeId, attachmentUrl)) {
+            return crow::response(201, "Görev kartı basariyla olusturuldu.");
+            std::string dueDate = x.has("due_date") ? std::string(x["due_date"].s()) : "";
+        }
+        return crow::response(500);
+            });
+
+    // ==========================================================
+    // BİLDİRİM SİSTEMİ (NOTIFICATIONS)
+    // ==========================================================
+    CROW_ROUTE(app, "/api/notifications").methods("GET"_method)
+        ([&db](const crow::request& req) {
+        if (!checkAuth(req, db)) return crow::response(401);
+        auto notifs = db.getUserNotifications(getUserIdFromHeader(req));
+        crow::json::wvalue res;
+        for (size_t i = 0; i < notifs.size(); i++) {
+            res[i]["id"] = notifs[i].id;
+            res[i]["message"] = notifs[i].message;
+            res[i]["type"] = notifs[i].type;
+            res[i]["created_at"] = notifs[i].created_at;
+        }
+        return crow::response(200, res);
+            });
+
+    CROW_ROUTE(app, "/api/notifications/<int>/read").methods("PUT"_method)
+        ([&db](const crow::request& req, int notifId) {
+        if (!checkAuth(req, db)) return crow::response(401);
+        if (db.markNotificationAsRead(notifId)) return crow::response(200);
+        return crow::response(500);
+            });
+
     // --- OTOMATİK HAYALET KULLANICI TEMİZLEYİCİ (BACKGROUND BOT) ---
     std::thread cleanupThread([&db]() {
         while (true) {
@@ -798,6 +961,15 @@ int main() {
             db.markInactiveUsersOffline(60);
         }
         });
+    // --- KANBAN ZAMANLAYICI BOTU ---
+    // Her 1 dakikada bir veritabanını tarar, saati yaklaşanlara veya bitenlere bildirim yazar.
+    std::thread kanbanTimerThread([&db]() {
+        while (true) {
+            std::this_thread::sleep_for(std::chrono::minutes(1));
+            db.processKanbanNotifications();
+        }
+        });
+    kanbanTimerThread.detach();
     cleanupThread.detach();
 
     std::cout << "MySaaSApp (Hatasiz & Kararli Surum) Basariyla Calisiyor: http://localhost:8080" << std::endl;
