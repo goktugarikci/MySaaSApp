@@ -3,10 +3,6 @@
 #include <crow/json.h>
 
 void AuthRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
-
-    // =============================================================
-    // API: STANDART GİRİŞ (LOGIN)
-    // =============================================================
     CROW_ROUTE(app, "/api/auth/login").methods(crow::HTTPMethod::POST)
         ([&db](const crow::request& req) {
         auto body = crow::json::load(req.body);
@@ -19,23 +15,18 @@ void AuthRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         std::string userId = db.authenticateUser(email, password);
 
         if (!userId.empty()) {
-            // Kullanıcı online yapıldı
             db.updateLastSeen(userId);
 
             crow::json::wvalue res;
-            // Gerçek JWT Token Üretimi
             res["token"] = Security::generateJwt(userId);
             res["user_id"] = userId;
-            res["message"] = "Giris basarili. Durum: Online";
+            res["message"] = std::string("Giris basarili. Durum: Online"); // Explicit cast eklendi
             return crow::response(200, res);
         }
 
         return crow::response(401, "Gecersiz e-posta veya sifre");
             });
 
-    // =============================================================
-    // API: STANDART KAYIT (REGISTER)
-    // =============================================================
     CROW_ROUTE(app, "/api/auth/register").methods(crow::HTTPMethod::POST)
         ([&db](const crow::request& req) {
         auto body = crow::json::load(req.body);
@@ -56,9 +47,6 @@ void AuthRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(409, "Bu e-posta adresi zaten kayitli.");
             });
 
-    // =============================================================
-    // API: GOOGLE AUTH CALLBACK (OAUTH2)
-    // =============================================================
     CROW_ROUTE(app, "/api/auth/google/callback").methods(crow::HTTPMethod::POST)
         ([&db](const crow::request& req) {
         auto body = crow::json::load(req.body);
@@ -68,15 +56,13 @@ void AuthRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
 
         std::string email = body["email"].s();
         std::string googleId = body["google_id"].s();
-        std::string name = body.has("name") ? body["name"].s() : "Google User";
-        std::string avatarUrl = body.has("avatar_url") ? body["avatar_url"].s() : "";
+        std::string name = body.has("name") ? std::string(body["name"].s()) : std::string("Google User");
+        std::string avatarUrl = body.has("avatar_url") ? std::string(body["avatar_url"].s()) : std::string("");
 
-        // Önce kullanıcının veritabanında olup olmadığına bak
         auto user = db.getUserByGoogleId(googleId);
         std::string userId;
 
         if (!user) {
-            // Kullanıcı yoksa, yeni bir Google kullanıcısı olarak kaydet
             if (db.createGoogleUser(name, email, googleId, avatarUrl)) {
                 user = db.getUserByGoogleId(googleId);
             }
@@ -89,7 +75,7 @@ void AuthRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
             crow::json::wvalue res;
             res["token"] = Security::generateJwt(userId);
             res["user_id"] = userId;
-            res["message"] = "Google ile giris basarili.";
+            res["message"] = std::string("Google ile giris basarili."); // Explicit cast eklendi
             return crow::response(200, res);
         }
 

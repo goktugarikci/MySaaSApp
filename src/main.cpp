@@ -12,6 +12,7 @@
 #include "routes/MessageRoutes.h"
 #include "routes/KanbanRoutes.h"
 #include "routes/WsRoutes.h"
+#include "routes/AdminRoutes.h"
 
 // --- ARKA PLAN GÖREVLERİ (BACKGROUND WORKERS) ---
 // Sunucu çalıştığı sürece arka planda asenkron olarak iş yapan döngü

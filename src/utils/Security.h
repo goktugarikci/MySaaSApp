@@ -2,15 +2,13 @@
 #include <string>
 #include <random>
 
+class DatabaseManager; // Forward declaration
+
 class Security {
 public:
-    // Şifreyi tuzlar ve hashler (Kayıt olurken kullanılır)
     static std::string hashPassword(const std::string& password);
-
-    // Girilen şifrenin doğruluğunu kontrol eder (Giriş yaparken kullanılır)
     static bool verifyPassword(const std::string& password, const std::string& hash);
 
-    // 15 Karakterlik Güvenli Rastgele ID Üretici
     static std::string generateId(int length = 15) {
         const std::string chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
         std::random_device rd;
@@ -23,7 +21,10 @@ public:
         return result;
     }
 
-    // [YENİ] JWT İşlemleri
     static std::string generateJwt(const std::string& userId);
     static bool verifyJwt(const std::string& token, std::string& outUserId);
+
+    // Crow request nesnesini alıp JWT doğrulaması yapan yardımcı metotlar
+    static std::string getUserIdFromHeader(const void* req_ptr);
+    static bool checkAuth(const void* req_ptr, DatabaseManager* db, bool requireAdmin = false);
 };

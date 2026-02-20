@@ -2,11 +2,12 @@
 #include "../utils/Security.h"
 #include <crow/json.h>
 
-void ServerRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
+// WINDOWS MAKRO ÇAKIŞMASI ÇÖZÜMÜ
+#ifdef _WIN32
+#undef DELETE
+#endif
 
-    // =============================================================
-    // API: KULLANICININ SUNUCULARINI GETİR (GET /api/servers)
-    // =============================================================
+void ServerRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
     CROW_ROUTE(app, "/api/servers").methods(crow::HTTPMethod::GET)
         ([&db](const crow::request& req) {
         if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
@@ -26,15 +27,12 @@ void ServerRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(200, res);
             });
 
-    // =============================================================
-    // API: YENİ SUNUCU OLUŞTUR (POST /api/servers)
-    // =============================================================
     CROW_ROUTE(app, "/api/servers").methods(crow::HTTPMethod::POST)
         ([&db](const crow::request& req) {
         if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
 
         auto body = crow::json::load(req.body);
-        if (!body || !body.has("name")) return crow::response(400, "Sunucu adi (name) gerekli");
+        if (!body || !body.has("name")) return crow::response(400, "Sunucu adi gerekli");
 
         std::string userId = Security::getUserIdFromHeader(&req);
         std::string serverName = body["name"].s();
@@ -42,21 +40,17 @@ void ServerRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         std::string serverId = db.createServer(serverName, userId);
 
         if (!serverId.empty()) {
-            // Varsayılan kanalları oluştur
-            db.createChannel(serverId, "genel", 0); // 0 = Metin Kanalı
-            db.createChannel(serverId, "sesli-sohbet", 1); // 1 = Ses/Video Kanalı
+            db.createChannel(serverId, "genel", 0);
+            db.createChannel(serverId, "sesli-sohbet", 1);
 
             crow::json::wvalue res;
             res["server_id"] = serverId;
-            res["message"] = "Sunucu basariyla olusturuldu";
+            res["message"] = std::string("Sunucu basariyla olusturuldu");
             return crow::response(201, res);
         }
-        return crow::response(403, "Sunucu olusturulamadi (Ucretsiz limit asimi vb.)");
+        return crow::response(403, "Sunucu olusturulamadi");
             });
 
-    // =============================================================
-    // API: SUNUCU DETAYLARINI GETİR (GET /api/servers/<id>)
-    // =============================================================
     CROW_ROUTE(app, "/api/servers/<string>").methods(crow::HTTPMethod::GET)
         ([&db](const crow::request& req, std::string serverId) {
         if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
@@ -74,9 +68,6 @@ void ServerRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(200, res);
             });
 
-    // =============================================================
-    // API: SUNUCUYU SİL (DELETE /api/servers/<id>)
-    // =============================================================
     CROW_ROUTE(app, "/api/servers/<string>").methods(crow::HTTPMethod::DELETE)
         ([&db](const crow::request& req, std::string serverId) {
         if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
@@ -86,26 +77,20 @@ void ServerRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
 
         if (!serverOpt) return crow::response(404, "Sunucu bulunamadi");
         if (serverOpt->ownerId != userId && !db.isSystemAdmin(userId)) {
-            return crow::response(403, "Bu sunucuyu silmek icin yetkiniz yok");
+            return crow::response(403, "Yetkiniz yok");
         }
 
         if (db.deleteServer(serverId)) {
             return crow::response(200, "Sunucu silindi");
         }
-        return crow::response(500, "Sunucu silinirken hata olustu");
+        return crow::response(500, "Sunucu silinemedi");
             });
 
-
-    // =============================================================
-        // API: SUNUCUNUN KANALLARINI GETİR (GÜNCELLENDİ: Özel Kanalları Filtreler)
-        // =============================================================
     CROW_ROUTE(app, "/api/servers/<string>/channels").methods(crow::HTTPMethod::GET)
         ([&db](const crow::request& req, std::string serverId) {
         if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
 
         std::string userId = Security::getUserIdFromHeader(&req);
-
-        // Sadece yetkisi olduğu kanalları çeker
         auto channels = db.getServerChannels(serverId, userId);
 
         crow::json::wvalue res;
@@ -118,32 +103,25 @@ void ServerRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(200, res);
             });
 
-    // =============================================================
-    // API: YENİ KANAL OLUŞTUR (GÜNCELLENDİ: Özel Kanal Desteği)
-    // =============================================================
     CROW_ROUTE(app, "/api/servers/<string>/channels").methods(crow::HTTPMethod::POST)
         ([&db](const crow::request& req, std::string serverId) {
         if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
 
         auto body = crow::json::load(req.body);
         if (!body || !body.has("name") || !body.has("type")) {
-            return crow::response(400, "Eksik parametre (name, type gerekli)");
+            return crow::response(400, "Eksik parametre");
         }
 
         std::string name = body["name"].s();
         int type = body["type"].i();
         bool isPrivate = body.has("is_private") ? body["is_private"].b() : false;
 
-        // Kanalı oluştur
         if (db.createChannel(serverId, name, type, isPrivate)) {
             return crow::response(201, "Kanal basariyla olusturuldu");
         }
         return crow::response(403, "Kanal olusturulamadi");
             });
 
-    // =============================================================
-    // API: ÖZEL KANALA ÜYE EKLE (POST /api/channels/<id>/members)
-    // =============================================================
     CROW_ROUTE(app, "/api/channels/<string>/members").methods(crow::HTTPMethod::POST)
         ([&db](const crow::request& req, std::string channelId) {
         if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
@@ -154,7 +132,6 @@ void ServerRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         std::string targetUserId = body["user_id"].s();
         std::string myId = Security::getUserIdFromHeader(&req);
 
-        // Sadece kanal yetkisi olan biri başkasını ekleyebilir (Basit kontrol)
         if (!db.hasChannelAccess(channelId, myId)) {
             return crow::response(403, "Bu kanala uye ekleme yetkiniz yok");
         }
@@ -165,9 +142,6 @@ void ServerRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(500, "Uye eklenemedi");
             });
 
-    // =============================================================
-    // API: ÖZEL KANALDAN ÜYE ÇIKAR (DELETE /api/channels/<channel_id>/members/<user_id>)
-    // =============================================================
     CROW_ROUTE(app, "/api/channels/<string>/members/<string>").methods(crow::HTTPMethod::DELETE)
         ([&db](const crow::request& req, std::string channelId, std::string targetUserId) {
         if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
@@ -184,9 +158,6 @@ void ServerRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(500, "Islem basarisiz");
             });
 
-    // =============================================================
-    // API: DAVET KODU İLE SUNUCUYA KATIL (POST /api/servers/join)
-    // =============================================================
     CROW_ROUTE(app, "/api/servers/join").methods(crow::HTTPMethod::POST)
         ([&db](const crow::request& req) {
         if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
@@ -203,9 +174,6 @@ void ServerRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(400, "Gecersiz davet kodu veya zaten uyesiniz");
             });
 
-    // =============================================================
-    // API: SUNUCU ÜYELERİNİ GETİR (GET /api/servers/<id>/members)
-    // =============================================================
     CROW_ROUTE(app, "/api/servers/<string>/members").methods(crow::HTTPMethod::GET)
         ([&db](const crow::request& req, std::string serverId) {
         if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");

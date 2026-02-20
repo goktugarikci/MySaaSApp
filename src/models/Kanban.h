@@ -1,48 +1,27 @@
 #pragma once
 #include <string>
 #include <vector>
-#include "crow.h"
 
-// Kart Yapısı
+// Kanban Kartı (Görev) Veri Modeli
 struct KanbanCard {
     std::string id;
-    std::string list_id;
+    std::string listId;
     std::string title;
     std::string description;
     int priority;
     int position;
 
-    crow::json::wvalue toJson() const {
-        crow::json::wvalue json;
-        json["id"] = id;
-        json["list_id"] = list_id;
-        json["title"] = title;
-        json["description"] = description;
-        json["priority"] = priority;
-        json["position"] = position;
-        return json;
-    }
+    // Gelecekte eklenebilecek detaylı alanlar (DB'de var olanlar)
+    std::string assigneeId;
+    bool isCompleted;
+    std::string attachmentUrl;
+    std::string dueDate;
 };
 
-// Liste (Sütun) Yapısı - (Eski adı KanbanListWithCards idi)
+// Kanban Listesi (Sütun) Veri Modeli
 struct KanbanList {
     std::string id;
     std::string title;
     int position;
-    std::vector<KanbanCard> cards; // Kartları içinde barındırır
-
-    crow::json::wvalue toJson() const {
-        crow::json::wvalue json;
-        json["id"] = id;
-        json["title"] = title;
-        json["position"] = position;
-
-        crow::json::wvalue cardArray;
-        for (size_t i = 0; i < cards.size(); ++i) {
-            cardArray[i] = cards[i].toJson();
-        }
-        json["cards"] = std::move(cardArray);
-
-        return json;
-    }
+    std::vector<KanbanCard> cards; // Bu listenin içindeki kartlar
 };

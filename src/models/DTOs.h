@@ -93,3 +93,28 @@ struct CardTagDTO {
     std::string tag_name;
     std::string color;
 };
+
+struct SystemStats {
+    int user_count;
+    int server_count;
+    int message_count;
+};
+
+struct ServerInviteDTO {
+    std::string serverId;
+    std::string serverName;
+    std::string inviterName;
+    std::string createdAt;
+};
+
+struct ServerMemberDetail {
+    std::string id;
+    std::string name;
+    std::string status;
+};
+
+struct ServerLog {
+    std::string createdAt;
+    std::string action;
+    std::string details;
+};
