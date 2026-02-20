@@ -78,13 +78,21 @@ public:
     bool assignRole(std::string serverId, std::string userId, std::string roleId);
 
     // --- KANAL YÖNETİMİ ---
-    bool createChannel(std::string serverId, std::string name, int type);
+    // [GÜNCELLEME] isPrivate parametresi eklendi
+    bool createChannel(std::string serverId, std::string name, int type, bool isPrivate = false);
     bool updateChannel(std::string channelId, const std::string& name);
     bool deleteChannel(std::string channelId);
-    std::vector<Channel> getServerChannels(std::string serverId);
+    // [GÜNCELLEME] Yetki kontrolü için userId opsiyonel parametresi eklendi
+    std::vector<Channel> getServerChannels(std::string serverId, std::string userId = "");
     int getServerKanbanCount(std::string serverId);
     std::string getChannelServerId(const std::string& channelId);
     std::string getChannelName(const std::string& channelId);
+
+    // [YENİ] Özel Kanal (Private Channel) Metotları
+    bool addMemberToChannel(std::string channelId, std::string userId);
+    bool removeMemberFromChannel(std::string channelId, std::string userId);
+    bool hasChannelAccess(std::string channelId, std::string userId);
+    std::vector<ServerMemberDetail> getChannelMembers(std::string channelId);
 
     // --- MESAJLAŞMA VE DM ---
     bool sendMessage(std::string channelId, std::string senderId, const std::string& content, const std::string& attachmentUrl = "");
@@ -92,6 +100,14 @@ public:
     bool deleteMessage(std::string messageId);
     std::vector<Message> getChannelMessages(std::string channelId, int limit = 50);
     std::string getOrCreateDMChannel(std::string user1Id, std::string user2Id);
+
+    // Gelişmiş Mesajlaşma (Tepkiler ve Alt Yanıtlar)
+    bool addMessageReaction(std::string messageId, std::string userId, const std::string& emoji);
+    bool removeMessageReaction(std::string messageId, std::string userId, const std::string& emoji);
+    std::vector<ReactionDTO> getMessageReactions(std::string messageId);
+
+    bool addThreadReply(std::string parentMessageId, std::string senderId, const std::string& content);
+    std::vector<ThreadReplyDTO> getThreadReplies(std::string parentMessageId);
 
     // --- KANBAN SİSTEMİ ---
     std::vector<KanbanList> getKanbanBoard(std::string channelId);
@@ -103,6 +119,15 @@ public:
     bool deleteKanbanCard(std::string cardId);
     bool moveCard(std::string cardId, std::string newListId, int newPosition);
     void processKanbanNotifications();
+
+    // Gelişmiş Kanban (Yorumlar ve Etiketler)
+    bool addCardComment(std::string cardId, std::string senderId, const std::string& content);
+    std::vector<CardCommentDTO> getCardComments(std::string cardId);
+    bool deleteCardComment(std::string commentId, std::string userId); // Sadece yazan veya admin silebilir
+
+    bool addCardTag(std::string cardId, const std::string& tagName, const std::string& color);
+    bool removeCardTag(std::string tagId);
+    std::vector<CardTagDTO> getCardTags(std::string cardId);
 
     // --- ARKADAŞLIK SİSTEMİ ---
     bool sendFriendRequest(std::string myId, std::string targetUserId);
