@@ -14,11 +14,11 @@ find_package(imgui CONFIG REQUIRED)
 find_package(glfw3 CONFIG REQUIRED)
 find_package(OpenGL REQUIRED)
 find_package(unofficial-argon2 CONFIG REQUIRED)
+find_package(jwt-cpp CONFIG REQUIRED)
 
 # ==========================================================
 # 1. PROGRAM: BACKEND SUNUCUSU (MySaaSApp.exe)
 # ==========================================================
-# DİKKAT: Burada 'file(GLOB...)' veya 'AdminUI.cpp' YOKTUR!
 add_executable(MySaaSApp 
     src/main.cpp 
     src/db/DatabaseManager.cpp 
@@ -30,6 +30,7 @@ target_link_libraries(MySaaSApp PRIVATE
     unofficial::sqlite3::sqlite3
     cpr::cpr
     unofficial::argon2::libargon2
+    jwt-cpp::jwt-cpp
 )
 
 # ==========================================================
@@ -42,6 +43,6 @@ target_link_libraries(AdminUI PRIVATE
     imgui::imgui
     glfw
     OpenGL::GL
-    cpr::cpr    # <-- EKLENDİ (API İstekleri için)
+    cpr::cpr
     Crow::Crow
 )
