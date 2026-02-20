@@ -46,12 +46,15 @@ bool DatabaseManager::initTables() {
         "CREATE TABLE IF NOT EXISTS Messages (ID TEXT PRIMARY KEY, ChannelID TEXT, SenderID TEXT, Content TEXT, AttachmentURL TEXT, Timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(ChannelID) REFERENCES Channels(ID) ON DELETE CASCADE, FOREIGN KEY(SenderID) REFERENCES Users(ID));"
         "CREATE TABLE IF NOT EXISTS Friends (RequesterID TEXT, TargetID TEXT, Status INTEGER DEFAULT 0, CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (RequesterID, TargetID), FOREIGN KEY(RequesterID) REFERENCES Users(ID), FOREIGN KEY(TargetID) REFERENCES Users(ID));"
         "CREATE TABLE IF NOT EXISTS KanbanLists (ID TEXT PRIMARY KEY, ChannelID TEXT, Title TEXT, Position INTEGER, FOREIGN KEY(ChannelID) REFERENCES Channels(ID) ON DELETE CASCADE);"
-        "CREATE TABLE IF NOT EXISTS KanbanCards (ID TEXT PRIMARY KEY, ListID TEXT, Title TEXT, Description TEXT, Priority INTEGER, Position INTEGER, FOREIGN KEY(ListID) REFERENCES KanbanLists(ID) ON DELETE CASCADE);"
+        "CREATE TABLE IF NOT EXISTS KanbanCards (ID TEXT PRIMARY KEY, ListID TEXT, Title TEXT, Description TEXT, Priority INTEGER, Position INTEGER, AssigneeID TEXT, IsCompleted INTEGER DEFAULT 0, AttachmentURL TEXT, DueDate DATETIME, WarningSent INTEGER DEFAULT 0, ExpiredSent INTEGER DEFAULT 0, FOREIGN KEY(ListID) REFERENCES KanbanLists(ID) ON DELETE CASCADE);"
         "CREATE TABLE IF NOT EXISTS Payments (ID TEXT PRIMARY KEY, UserID TEXT, ProviderPaymentID TEXT, Amount REAL, Currency TEXT, Status TEXT DEFAULT 'pending', CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(UserID) REFERENCES Users(ID));"
         "CREATE TABLE IF NOT EXISTS Reports (ID TEXT PRIMARY KEY, ReporterID TEXT, ContentID TEXT, Type TEXT, Reason TEXT, Status TEXT DEFAULT 'OPEN', CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(ReporterID) REFERENCES Users(ID));"
         // DİKKAT: AŞAĞIDAKİ SATIR YENİ EKLENDİ
-        "CREATE TABLE IF NOT EXISTS ServerLogs (ID INTEGER PRIMARY KEY AUTOINCREMENT, ServerID TEXT, Action TEXT, Details TEXT, CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP);";
-        "CREATE TABLE IF NOT EXISTS ServerInvites (ServerID TEXT, InviterID TEXT, InviteeID TEXT, CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(ServerID, InviteeID));";
+        "CREATE TABLE IF NOT EXISTS ServerLogs (ID INTEGER PRIMARY KEY AUTOINCREMENT, ServerID TEXT, Action TEXT, Details TEXT, CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP);"
+        "CREATE TABLE IF NOT EXISTS ServerInvites (ServerID TEXT, InviterID TEXT, InviteeID TEXT, CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(ServerID, InviteeID));"
+        "CREATE TABLE IF NOT EXISTS BlockedUsers (UserID TEXT, BlockedID TEXT, CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(UserID, BlockedID));"
+        "CREATE TABLE IF NOT EXISTS ServerMemberRoles (ServerID TEXT, UserID TEXT, RoleID TEXT, PRIMARY KEY(ServerID, UserID, RoleID));"
+        "CREATE TABLE IF NOT EXISTS Notifications (ID INTEGER PRIMARY KEY AUTOINCREMENT, UserID TEXT, Message TEXT, Type TEXT, IsRead INTEGER DEFAULT 0, CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(UserID) REFERENCES Users(ID) ON DELETE CASCADE);";
 
 
     return executeQuery(sql);
@@ -905,4 +908,71 @@ std::string DatabaseManager::getChannelName(const std::string& channelId) {
         if (sqlite3_step(stmt) == SQLITE_ROW) name = SAFE_TEXT(0);
     }
     sqlite3_finalize(stmt); return name;
+}
+
+// 1 SAAT KALA VE SÜRE BİTİNCE BİLDİRİM ATAN ARKA PLAN BOTU
+void DatabaseManager::processKanbanNotifications() {
+    // 1 Saat Kalanları Bul (Tamamlanmamış, uyarı atılmamış ve bitişine 1 saatten az kalmış)
+    std::string sqlWarning = "SELECT ID, Title, AssigneeID FROM KanbanCards WHERE IsCompleted = 0 AND WarningSent = 0 AND DueDate IS NOT NULL AND (julianday(DueDate) - julianday('now', 'localtime')) <= (1.0/24.0) AND (julianday(DueDate) - julianday('now', 'localtime')) > 0 AND AssigneeID != '';";
+
+    // Süresi Dolanları Bul (Tamamlanmamış, süresi geçmiş ve expire atılmamış)
+    std::string sqlExpired = "SELECT ID, Title, AssigneeID FROM KanbanCards WHERE IsCompleted = 0 AND ExpiredSent = 0 AND DueDate IS NOT NULL AND (julianday(DueDate) - julianday('now', 'localtime')) <= 0 AND AssigneeID != '';";
+
+    sqlite3_stmt* stmt;
+
+    // UYARILARI GÖNDER
+    if (sqlite3_prepare_v2(db, sqlWarning.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            std::string cardId = SAFE_TEXT(0); std::string title = SAFE_TEXT(1); std::string assignee = SAFE_TEXT(2);
+            std::string msg = "Yaklasan Gorev: '" + title + "' icin son 1 saatiniz kaldi!";
+
+            // Bildirimi kaydet ve bayrağı 1 yap
+            std::string insertNotif = "INSERT INTO Notifications (UserID, Message, Type) VALUES ('" + assignee + "', '" + msg + "', 'WARNING');";
+            sqlite3_exec(db, insertNotif.c_str(), nullptr, nullptr, nullptr);
+            sqlite3_exec(db, ("UPDATE KanbanCards SET WarningSent = 1 WHERE ID = '" + cardId + "';").c_str(), nullptr, nullptr, nullptr);
+        }
+    }
+    sqlite3_finalize(stmt);
+
+    // SÜRESİ BİTENLERİ GÖNDER
+    if (sqlite3_prepare_v2(db, sqlExpired.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            std::string cardId = SAFE_TEXT(0); std::string title = SAFE_TEXT(1); std::string assignee = SAFE_TEXT(2);
+            std::string msg = "Suresi Doldu: '" + title + "' adli gorevin teslim suresi gecti!";
+
+            // Bildirimi kaydet ve bayrağı 1 yap
+            std::string insertNotif = "INSERT INTO Notifications (UserID, Message, Type) VALUES ('" + assignee + "', '" + msg + "', 'EXPIRED');";
+            sqlite3_exec(db, insertNotif.c_str(), nullptr, nullptr, nullptr);
+            sqlite3_exec(db, ("UPDATE KanbanCards SET ExpiredSent = 1 WHERE ID = '" + cardId + "';").c_str(), nullptr, nullptr, nullptr);
+        }
+    }
+    sqlite3_finalize(stmt);
+}
+
+// KULLANICI BİLDİRİMLERİNİ GETİRİR
+std::vector<DatabaseManager::NotificationDTO> DatabaseManager::getUserNotifications(const std::string& userId) {
+    std::vector<NotificationDTO> notifs;
+    std::string sql = "SELECT ID, Message, Type, CreatedAt FROM Notifications WHERE UserID = ? AND IsRead = 0 ORDER BY CreatedAt DESC;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, userId.c_str(), -1, SQLITE_TRANSIENT);
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            notifs.push_back({ sqlite3_column_int(stmt, 0), SAFE_TEXT(1), SAFE_TEXT(2), SAFE_TEXT(3) });
+        }
+    }
+    sqlite3_finalize(stmt);
+    return notifs;
+}
+
+// BİLDİRİMİ OKUNDU İŞARETLE
+bool DatabaseManager::markNotificationAsRead(int notifId) {
+    std::string sql = "UPDATE Notifications SET IsRead = 1 WHERE ID = ?;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_int(stmt, 1, notifId);
+        bool success = (sqlite3_step(stmt) == SQLITE_DONE);
+        sqlite3_finalize(stmt);
+        return success;
+    }
+    return false;
 }

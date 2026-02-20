@@ -153,4 +153,10 @@ public:
     bool isSubscriptionActive(std::string userId);
     int getUserServerCount(std::string userId);
     bool updateUserSubscription(std::string userId, int level, int durationDays);
+
+    // --- BİLDİRİM VE KANBAN ZAMANLAYICI ---
+    void processKanbanNotifications();
+    struct NotificationDTO { int id; std::string message; std::string type; std::string created_at; };
+    std::vector<NotificationDTO> getUserNotifications(const std::string& userId);
+    bool markNotificationAsRead(int notifId);
 };
