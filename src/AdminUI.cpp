@@ -211,7 +211,8 @@ void StartBackendServer() {
 
     PROCESS_INFORMATION pi;
 
-    if (CreateProcessA(NULL, (LPSTR)"MySaaSApp.exe", NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
+    // Program adını NULL olan ilk parametreye aldık ve güvenliği sağladık.
+    if (CreateProcessA("MySaaSApp.exe", NULL, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
         CloseHandle(pi.hProcess);
         CloseHandle(pi.hThread);
 
