@@ -2,8 +2,6 @@
 #include "../utils/Security.h"
 #include <iostream>
 #include <algorithm> 
-#include <cstring>
-#include <chrono>
 
 #define SAFE_TEXT(col) (reinterpret_cast<const char*>(sqlite3_column_text(stmt, col)) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, col)) : "")
 
@@ -13,7 +11,8 @@ DatabaseManager::~DatabaseManager() { close(); }
 bool DatabaseManager::open() {
     int rc = sqlite3_open(db_path.c_str(), &db);
     if (rc) return false;
-    executeQuery("PRAGMA foreign_keys = ON;"); return true;
+    executeQuery("PRAGMA foreign_keys = ON;");
+    return true;
 }
 
 void DatabaseManager::close() { if (db) { sqlite3_close(db); db = nullptr; } }
@@ -21,7 +20,8 @@ void DatabaseManager::close() { if (db) { sqlite3_close(db); db = nullptr; } }
 bool DatabaseManager::executeQuery(const std::string& sql) {
     char* zErrMsg = 0;
     int rc = sqlite3_exec(db, sql.c_str(), 0, 0, &zErrMsg);
-    if (rc != SQLITE_OK) { sqlite3_free(zErrMsg); return false; } return true;
+    if (rc != SQLITE_OK) { sqlite3_free(zErrMsg); return false; }
+    return true;
 }
 
 bool DatabaseManager::initTables() {
@@ -51,7 +51,6 @@ bool DatabaseManager::initTables() {
     return executeQuery(sql);
 }
 
-// --- AUTH & USERS ---
 bool DatabaseManager::createGoogleUser(const std::string& name, const std::string& email, const std::string& googleId, const std::string& avatarUrl) {
     std::string id = Security::generateId(15); sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, "INSERT INTO Users (ID, Name, Email, GoogleID, AvatarURL, IsSystemAdmin) VALUES (?, ?, ?, ?, ?, 0);", -1, &stmt, nullptr) != SQLITE_OK) return false;
@@ -63,7 +62,11 @@ std::optional<User> DatabaseManager::getUserByGoogleId(const std::string& google
     sqlite3_stmt* stmt; std::optional<User> user = std::nullopt;
     if (sqlite3_prepare_v2(db, "SELECT ID, Name, Email, Status, IsSystemAdmin, AvatarURL, SubscriptionLevel, SubscriptionExpiresAt, GoogleID FROM Users WHERE GoogleID = ?;", -1, &stmt, nullptr) == SQLITE_OK) {
         sqlite3_bind_text(stmt, 1, googleId.c_str(), -1, SQLITE_STATIC);
-        if (sqlite3_step(stmt) == SQLITE_ROW) user = User{ SAFE_TEXT(0), SAFE_TEXT(1), SAFE_TEXT(2), "", sqlite3_column_int(stmt, 4) != 0, SAFE_TEXT(3), SAFE_TEXT(5), sqlite3_column_int(stmt, 6), SAFE_TEXT(7), SAFE_TEXT(8) };
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            User u; u.id = SAFE_TEXT(0); u.name = SAFE_TEXT(1); u.email = SAFE_TEXT(2); u.status = SAFE_TEXT(3);
+            u.isSystemAdmin = (sqlite3_column_int(stmt, 4) != 0); u.avatarUrl = SAFE_TEXT(5); u.subscriptionLevel = "Normal";
+            u.subscriptionLevelInt = 0; u.subscriptionExpiresAt = ""; u.googleId = SAFE_TEXT(8); user = u;
+        }
     } sqlite3_finalize(stmt); return user;
 }
 
@@ -79,7 +82,11 @@ std::optional<User> DatabaseManager::getUser(const std::string& email) {
     sqlite3_stmt* stmt; std::optional<User> user = std::nullopt;
     if (sqlite3_prepare_v2(db, "SELECT ID, Name, Email, Status, IsSystemAdmin, AvatarURL, SubscriptionLevel, SubscriptionExpiresAt, GoogleID FROM Users WHERE Email = ?;", -1, &stmt, nullptr) == SQLITE_OK) {
         sqlite3_bind_text(stmt, 1, email.c_str(), -1, SQLITE_STATIC);
-        if (sqlite3_step(stmt) == SQLITE_ROW) user = User{ SAFE_TEXT(0), SAFE_TEXT(1), SAFE_TEXT(2), "", sqlite3_column_int(stmt, 4) != 0, SAFE_TEXT(3), SAFE_TEXT(5), sqlite3_column_int(stmt, 6), SAFE_TEXT(7), SAFE_TEXT(8) };
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            User u; u.id = SAFE_TEXT(0); u.name = SAFE_TEXT(1); u.email = SAFE_TEXT(2); u.status = SAFE_TEXT(3);
+            u.isSystemAdmin = (sqlite3_column_int(stmt, 4) != 0); u.avatarUrl = SAFE_TEXT(5); u.subscriptionLevel = "Normal";
+            u.subscriptionLevelInt = 0; u.subscriptionExpiresAt = ""; u.googleId = SAFE_TEXT(8); user = u;
+        }
     } sqlite3_finalize(stmt); return user;
 }
 
@@ -87,7 +94,11 @@ std::optional<User> DatabaseManager::getUserById(std::string id) {
     sqlite3_stmt* stmt; std::optional<User> user = std::nullopt;
     if (sqlite3_prepare_v2(db, "SELECT ID, Name, Email, Status, IsSystemAdmin, AvatarURL, SubscriptionLevel, SubscriptionExpiresAt, GoogleID FROM Users WHERE ID = ?;", -1, &stmt, nullptr) == SQLITE_OK) {
         sqlite3_bind_text(stmt, 1, id.c_str(), -1, SQLITE_STATIC);
-        if (sqlite3_step(stmt) == SQLITE_ROW) user = User{ SAFE_TEXT(0), SAFE_TEXT(1), SAFE_TEXT(2), "", sqlite3_column_int(stmt, 4) != 0, SAFE_TEXT(3), SAFE_TEXT(5), sqlite3_column_int(stmt, 6), SAFE_TEXT(7), SAFE_TEXT(8) };
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            User u; u.id = SAFE_TEXT(0); u.name = SAFE_TEXT(1); u.email = SAFE_TEXT(2); u.status = SAFE_TEXT(3);
+            u.isSystemAdmin = (sqlite3_column_int(stmt, 4) != 0); u.avatarUrl = SAFE_TEXT(5); u.subscriptionLevel = "Normal";
+            u.subscriptionLevelInt = 0; u.subscriptionExpiresAt = ""; u.googleId = SAFE_TEXT(8); user = u;
+        }
     } sqlite3_finalize(stmt); return user;
 }
 
@@ -102,10 +113,7 @@ std::string DatabaseManager::authenticateUser(const std::string& email, const st
     return userId;
 }
 
-bool DatabaseManager::loginUser(const std::string& email, const std::string& rawPassword) {
-    return !authenticateUser(email, rawPassword).empty();
-}
-
+bool DatabaseManager::loginUser(const std::string& email, const std::string& rawPassword) { return !authenticateUser(email, rawPassword).empty(); }
 bool DatabaseManager::updateUserAvatar(std::string userId, const std::string& avatarUrl) { return executeQuery("UPDATE Users SET AvatarURL = '" + avatarUrl + "' WHERE ID = '" + userId + "';"); }
 bool DatabaseManager::updateUserDetails(std::string userId, const std::string& name, const std::string& status) {
     sqlite3_stmt* stmt; if (sqlite3_prepare_v2(db, "UPDATE Users SET Name = ?, Status = ? WHERE ID = ?;", -1, &stmt, nullptr) != SQLITE_OK) return false;
@@ -125,49 +133,27 @@ bool DatabaseManager::updateUserStatus(const std::string& userId, const std::str
 std::vector<User> DatabaseManager::searchUsers(const std::string& searchQuery) {
     std::vector<User> users; std::string sql = "SELECT ID, Name, Email, Status, IsSystemAdmin, AvatarURL FROM Users WHERE Name LIKE ? OR Email LIKE ? LIMIT 20;"; sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
-        std::string likeTerm = "%" + searchQuery + "%";
-        sqlite3_bind_text(stmt, 1, likeTerm.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_text(stmt, 2, likeTerm.c_str(), -1, SQLITE_TRANSIENT);
+        std::string likeTerm = "%" + searchQuery + "%"; sqlite3_bind_text(stmt, 1, likeTerm.c_str(), -1, SQLITE_TRANSIENT); sqlite3_bind_text(stmt, 2, likeTerm.c_str(), -1, SQLITE_TRANSIENT);
         while (sqlite3_step(stmt) == SQLITE_ROW) {
-            User u;
-            u.id = SAFE_TEXT(0);
-            u.name = SAFE_TEXT(1);
-            u.email = SAFE_TEXT(2);
-            u.status = SAFE_TEXT(3);
-            u.isSystemAdmin = (sqlite3_column_int(stmt, 4) != 0);
-            u.avatarUrl = SAFE_TEXT(5);
-            u.subscriptionLevel = "Normal";
-            u.subscriptionLevelInt = 0;
-            u.subscriptionExpiresAt = "";
-            u.googleId = "";
-            users.push_back(u);
+            User u; u.id = SAFE_TEXT(0); u.name = SAFE_TEXT(1); u.email = SAFE_TEXT(2); u.status = SAFE_TEXT(3);
+            u.isSystemAdmin = (sqlite3_column_int(stmt, 4) != 0); u.avatarUrl = SAFE_TEXT(5); u.subscriptionLevel = "Normal";
+            u.subscriptionLevelInt = 0; u.subscriptionExpiresAt = ""; u.googleId = ""; users.push_back(u);
         }
-    }
-    sqlite3_finalize(stmt); return users;
+    } sqlite3_finalize(stmt); return users;
 }
+
 std::vector<User> DatabaseManager::getAllUsers() {
     std::vector<User> users; std::string sql = "SELECT ID, Name, Email, Status, IsSystemAdmin, AvatarURL FROM Users;"; sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
         while (sqlite3_step(stmt) == SQLITE_ROW) {
-            User u;
-            u.id = SAFE_TEXT(0);
-            u.name = SAFE_TEXT(1);
-            u.email = SAFE_TEXT(2);
-            u.status = SAFE_TEXT(3);
-            u.isSystemAdmin = (sqlite3_column_int(stmt, 4) != 0);
-            u.avatarUrl = SAFE_TEXT(5);
-            u.subscriptionLevel = "Normal"; // Varsayılan değerler
-            u.subscriptionLevelInt = 0;
-            u.subscriptionExpiresAt = "";
-            u.googleId = "";
-            users.push_back(u);
+            User u; u.id = SAFE_TEXT(0); u.name = SAFE_TEXT(1); u.email = SAFE_TEXT(2); u.status = SAFE_TEXT(3);
+            u.isSystemAdmin = (sqlite3_column_int(stmt, 4) != 0); u.avatarUrl = SAFE_TEXT(5); u.subscriptionLevel = "Normal";
+            u.subscriptionLevelInt = 0; u.subscriptionExpiresAt = ""; u.googleId = ""; users.push_back(u);
         }
-    }
-    sqlite3_finalize(stmt); return users;
+    } sqlite3_finalize(stmt); return users;
 }
 bool DatabaseManager::banUser(std::string userId) { return deleteUser(userId); }
 
-// --- ADMIN / SYSTEM ---
 SystemStats DatabaseManager::getSystemStats() {
     SystemStats stats = { 0, 0, 0 }; sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM Users;", -1, &stmt, nullptr) == SQLITE_OK) { if (sqlite3_step(stmt) == SQLITE_ROW) stats.user_count = sqlite3_column_int(stmt, 0); } sqlite3_finalize(stmt);
@@ -199,51 +185,63 @@ std::vector<ServerLog> DatabaseManager::getServerLogs(const std::string& serverI
     if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) { sqlite3_bind_text(stmt, 1, serverId.c_str(), -1, SQLITE_TRANSIENT); while (sqlite3_step(stmt) == SQLITE_ROW) logs.push_back({ SAFE_TEXT(0), SAFE_TEXT(1), SAFE_TEXT(2), SAFE_TEXT(3), SAFE_TEXT(4), SAFE_TEXT(5) }); } sqlite3_finalize(stmt); return logs;
 }
 
-// --- SUNUCULAR (SERVERS) ---
 std::string DatabaseManager::createServer(const std::string& name, std::string ownerId) {
     if (!isSubscriptionActive(ownerId) && getUserServerCount(ownerId) >= 1) return "";
+    std::string checkUserSql = "SELECT ID FROM Users WHERE ID = ?;"; sqlite3_stmt* checkStmt; bool userExists = false;
+    if (sqlite3_prepare_v2(db, checkUserSql.c_str(), -1, &checkStmt, nullptr) == SQLITE_OK) { sqlite3_bind_text(checkStmt, 1, ownerId.c_str(), -1, SQLITE_TRANSIENT); if (sqlite3_step(checkStmt) == SQLITE_ROW) userExists = true; } sqlite3_finalize(checkStmt);
+    if (!userExists) return "";
     std::string id = Security::generateId(15); std::string inviteCode = "INV-" + id; std::string sql = "INSERT INTO Servers (ID, OwnerID, Name, InviteCode) VALUES (?, ?, ?, ?);"; sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) return "";
     sqlite3_bind_text(stmt, 1, id.c_str(), -1, SQLITE_TRANSIENT); sqlite3_bind_text(stmt, 2, ownerId.c_str(), -1, SQLITE_TRANSIENT); sqlite3_bind_text(stmt, 3, name.c_str(), -1, SQLITE_TRANSIENT); sqlite3_bind_text(stmt, 4, inviteCode.c_str(), -1, SQLITE_TRANSIENT);
     bool success = (sqlite3_step(stmt) == SQLITE_DONE); sqlite3_finalize(stmt);
     if (success) { addMemberToServer(id, ownerId); createRole(id, "Admin", 100, 9999); return id; } return "";
 }
+
 bool DatabaseManager::updateServer(std::string serverId, const std::string& name, const std::string& iconUrl) {
     const char* sql = "UPDATE Servers SET Name = ?, IconURL = ? WHERE ID = ?"; sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
     sqlite3_bind_text(stmt, 1, name.c_str(), -1, SQLITE_STATIC); sqlite3_bind_text(stmt, 2, iconUrl.c_str(), -1, SQLITE_STATIC); sqlite3_bind_text(stmt, 3, serverId.c_str(), -1, SQLITE_STATIC);
     bool s = (sqlite3_step(stmt) == SQLITE_DONE); sqlite3_finalize(stmt); return s;
 }
+
 bool DatabaseManager::deleteServer(std::string serverId) { return executeQuery("DELETE FROM Servers WHERE ID = '" + serverId + "'"); }
+
 std::vector<Server> DatabaseManager::getUserServers(std::string userId) {
     std::vector<Server> servers; std::string sql = "SELECT S.ID, S.Name, S.OwnerID, S.InviteCode, S.IconURL, S.CreatedAt, (SELECT COUNT(*) FROM ServerMembers SM WHERE SM.ServerID = S.ID) FROM Servers S JOIN ServerMembers SM ON S.ID = SM.ServerID WHERE SM.UserID = '" + userId + "';"; sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) { while (sqlite3_step(stmt) == SQLITE_ROW) servers.push_back(Server{ SAFE_TEXT(0), SAFE_TEXT(2), SAFE_TEXT(1), SAFE_TEXT(3), SAFE_TEXT(4), SAFE_TEXT(5), sqlite3_column_int(stmt, 6), {} }); } sqlite3_finalize(stmt); return servers;
 }
+
 std::vector<Server> DatabaseManager::getAllServers() {
     std::vector<Server> servers; std::string sql = "SELECT S.ID, S.Name, S.OwnerID, S.InviteCode, S.IconURL, S.CreatedAt, (SELECT COUNT(*) FROM ServerMembers SM WHERE SM.ServerID = S.ID) FROM Servers S;"; sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) { while (sqlite3_step(stmt) == SQLITE_ROW) servers.push_back(Server{ SAFE_TEXT(0), SAFE_TEXT(2), SAFE_TEXT(1), SAFE_TEXT(3), SAFE_TEXT(4), SAFE_TEXT(5), sqlite3_column_int(stmt, 6), {} }); } sqlite3_finalize(stmt); return servers;
 }
+
 std::optional<Server> DatabaseManager::getServerDetails(std::string serverId) {
     std::string sql = "SELECT ID, Name, OwnerID, InviteCode, IconURL, CreatedAt FROM Servers WHERE ID = '" + serverId + "';"; sqlite3_stmt* stmt; std::optional<Server> server = std::nullopt;
     if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) return std::nullopt;
     if (sqlite3_step(stmt) == SQLITE_ROW) server = Server{ SAFE_TEXT(0), SAFE_TEXT(2), SAFE_TEXT(1), SAFE_TEXT(3), SAFE_TEXT(4), SAFE_TEXT(5), 0, {} }; sqlite3_finalize(stmt); return server;
 }
+
 std::string DatabaseManager::getServerSettings(std::string serverId) {
     sqlite3_stmt* stmt; std::string settings = "{}";
     if (sqlite3_prepare_v2(db, "SELECT Settings FROM Servers WHERE ID = ?;", -1, &stmt, nullptr) == SQLITE_OK) { sqlite3_bind_text(stmt, 1, serverId.c_str(), -1, SQLITE_STATIC); if (sqlite3_step(stmt) == SQLITE_ROW) settings = SAFE_TEXT(0); } sqlite3_finalize(stmt); return settings;
 }
+
 bool DatabaseManager::updateServerSettings(std::string serverId, const std::string& settingsJson) {
     sqlite3_stmt* stmt; if (sqlite3_prepare_v2(db, "UPDATE Servers SET Settings = ? WHERE ID = ?;", -1, &stmt, nullptr) == SQLITE_OK) { sqlite3_bind_text(stmt, 1, settingsJson.c_str(), -1, SQLITE_TRANSIENT); sqlite3_bind_text(stmt, 2, serverId.c_str(), -1, SQLITE_TRANSIENT); bool s = (sqlite3_step(stmt) == SQLITE_DONE); sqlite3_finalize(stmt); return s; } return false;
 }
+
 bool DatabaseManager::hasServerPermission(std::string serverId, std::string userId, std::string permissionType) {
     auto srv = getServerDetails(serverId); if (srv && srv->owner_id == userId) return true;
     std::string sql = "SELECT R.RoleName FROM Roles R JOIN ServerMemberRoles SMR ON R.ID = SMR.RoleID WHERE SMR.ServerID = ? AND SMR.UserID = ?;"; sqlite3_stmt* stmt; bool hasPerm = false;
     if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) { sqlite3_bind_text(stmt, 1, serverId.c_str(), -1, SQLITE_TRANSIENT); sqlite3_bind_text(stmt, 2, userId.c_str(), -1, SQLITE_TRANSIENT); while (sqlite3_step(stmt) == SQLITE_ROW) { std::string rName = SAFE_TEXT(0); for (auto& c : rName) c = toupper(c); if (rName.find(permissionType) != std::string::npos) { hasPerm = true; break; } } } sqlite3_finalize(stmt); return hasPerm;
 }
+
 bool DatabaseManager::isUserInServer(std::string serverId, std::string userId) {
     sqlite3_stmt* stmt; bool inServer = false;
     if (sqlite3_prepare_v2(db, "SELECT 1 FROM ServerMembers WHERE ServerID = ? AND UserID = ?;", -1, &stmt, nullptr) == SQLITE_OK) { sqlite3_bind_text(stmt, 1, serverId.c_str(), -1, SQLITE_TRANSIENT); sqlite3_bind_text(stmt, 2, userId.c_str(), -1, SQLITE_TRANSIENT); if (sqlite3_step(stmt) == SQLITE_ROW) inServer = true; } sqlite3_finalize(stmt); return inServer;
 }
+
 bool DatabaseManager::addMemberToServer(std::string serverId, std::string userId) { return executeQuery("INSERT INTO ServerMembers (ServerID, UserID) VALUES ('" + serverId + "', '" + userId + "');"); }
 bool DatabaseManager::removeMemberFromServer(std::string serverId, std::string userId) { return executeQuery("DELETE FROM ServerMembers WHERE ServerID='" + serverId + "' AND UserID='" + userId + "'"); }
 bool DatabaseManager::joinServerByCode(std::string userId, const std::string& inviteCode) {
@@ -257,7 +255,6 @@ std::vector<ServerMemberDetail> DatabaseManager::getServerMembersDetails(const s
     if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) { sqlite3_bind_text(stmt, 1, serverId.c_str(), -1, SQLITE_TRANSIENT); while (sqlite3_step(stmt) == SQLITE_ROW) members.push_back({ SAFE_TEXT(0), SAFE_TEXT(1), SAFE_TEXT(2) }); } sqlite3_finalize(stmt); return members;
 }
 
-// --- DAVETLER (INVITES) ---
 bool DatabaseManager::sendServerInvite(std::string serverId, std::string inviterId, std::string inviteeId) {
     if (inviterId == inviteeId) return false; std::string sql = "INSERT OR IGNORE INTO ServerInvites (ServerID, InviterID, InviteeID) VALUES (?, ?, ?);"; sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) { sqlite3_bind_text(stmt, 1, serverId.c_str(), -1, SQLITE_TRANSIENT); sqlite3_bind_text(stmt, 2, inviterId.c_str(), -1, SQLITE_TRANSIENT); sqlite3_bind_text(stmt, 3, inviteeId.c_str(), -1, SQLITE_TRANSIENT); bool s = (sqlite3_step(stmt) == SQLITE_DONE); sqlite3_finalize(stmt); return s; } return false;
@@ -272,7 +269,6 @@ bool DatabaseManager::resolveServerInvite(std::string serverId, std::string invi
     if (accept) return addMemberToServer(serverId, inviteeId); return true;
 }
 
-// --- ROLLER (ROLES) ---
 bool DatabaseManager::createRole(std::string serverId, std::string roleName, int hierarchy, int permissions) {
     std::string id = Security::generateId(15); return executeQuery("INSERT INTO Roles (ID, ServerID, RoleName, Hierarchy, Permissions) VALUES ('" + id + "', '" + serverId + "', '" + roleName + "', " + std::to_string(hierarchy) + ", " + std::to_string(permissions) + ");");
 }
@@ -293,7 +289,6 @@ bool DatabaseManager::assignRoleToMember(std::string serverId, std::string userI
 }
 bool DatabaseManager::assignRole(std::string serverId, std::string userId, std::string roleId) { return assignRoleToMember(serverId, userId, roleId); }
 
-// --- KANALLAR (CHANNELS) ---
 bool DatabaseManager::createChannel(std::string serverId, std::string name, int type) { return createChannel(serverId, name, type, false); }
 bool DatabaseManager::createChannel(std::string serverId, std::string name, int type, bool isPrivate) {
     if (type == 3 && getServerKanbanCount(serverId) >= 1) return false;
@@ -343,7 +338,6 @@ std::string DatabaseManager::getChannelName(const std::string& channelId) {
     if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) { sqlite3_bind_text(stmt, 1, channelId.c_str(), -1, SQLITE_TRANSIENT); if (sqlite3_step(stmt) == SQLITE_ROW) name = SAFE_TEXT(0); } sqlite3_finalize(stmt); return name;
 }
 
-// --- MESAJLAŞMA & TEPKİLER (MESSAGES) ---
 std::string DatabaseManager::getOrCreateDMChannel(std::string user1Id, std::string user2Id) {
     std::string u1 = std::min(user1Id, user2Id); std::string u2 = std::max(user1Id, user2Id); std::string dmName = "dm_" + u1 + "_" + u2;
     std::string sql = "SELECT ID FROM Channels WHERE Name = '" + dmName + "' AND ServerID = '0';"; sqlite3_stmt* stmt; std::string channelId = "";
@@ -365,11 +359,7 @@ bool DatabaseManager::updateMessage(std::string messageId, const std::string& ne
 bool DatabaseManager::deleteMessage(std::string messageId) { return executeQuery("DELETE FROM Messages WHERE ID = '" + messageId + "'"); }
 std::vector<Message> DatabaseManager::getChannelMessages(std::string channelId, int limit) {
     std::vector<Message> messages; std::string sql = "SELECT M.ID, M.SenderID, U.Name, U.AvatarURL, M.Content, M.AttachmentURL, M.Timestamp FROM Messages M JOIN Users U ON M.SenderID = U.ID WHERE M.ChannelID = '" + channelId + "' ORDER BY M.Timestamp ASC LIMIT " + std::to_string(limit) + ";"; sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
-        while (sqlite3_step(stmt) == SQLITE_ROW) {
-            Message m; m.id = SAFE_TEXT(0); m.channel_id = channelId; m.sender_id = SAFE_TEXT(1); m.sender_name = SAFE_TEXT(2); m.sender_avatar = SAFE_TEXT(3); m.content = SAFE_TEXT(4); m.attachment_url = SAFE_TEXT(5); m.timestamp = SAFE_TEXT(6); messages.push_back(m);
-        }
-    } sqlite3_finalize(stmt); return messages;
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) { while (sqlite3_step(stmt) == SQLITE_ROW) messages.push_back(Message{ SAFE_TEXT(0), channelId, SAFE_TEXT(1), SAFE_TEXT(2), SAFE_TEXT(3), SAFE_TEXT(4), SAFE_TEXT(5), SAFE_TEXT(6) }); } sqlite3_finalize(stmt); return messages;
 }
 bool DatabaseManager::addMessageReaction(std::string messageId, std::string userId, std::string reaction) {
     std::string sql = "INSERT OR IGNORE INTO MessageReactions (MessageID, UserID, Reaction) VALUES (?, ?, ?);"; sqlite3_stmt* stmt;
@@ -385,7 +375,6 @@ std::vector<Message> DatabaseManager::getThreadReplies(std::string messageId) {
     if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) { sqlite3_bind_text(stmt, 1, messageId.c_str(), -1, SQLITE_TRANSIENT); while (sqlite3_step(stmt) == SQLITE_ROW) { Message m; m.id = SAFE_TEXT(0); m.channel_id = messageId; m.sender_id = SAFE_TEXT(1); m.sender_name = SAFE_TEXT(2); m.sender_avatar = SAFE_TEXT(3); m.content = SAFE_TEXT(4); m.timestamp = SAFE_TEXT(5); replies.push_back(m); } } sqlite3_finalize(stmt); return replies;
 }
 
-// --- KANBAN SİSTEMİ ---
 std::vector<KanbanList> DatabaseManager::getKanbanBoard(std::string channelId) {
     std::vector<KanbanList> board; std::string sql = "SELECT ID, Title, Position FROM KanbanLists WHERE ChannelID = '" + channelId + "' ORDER BY Position ASC;"; sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
@@ -441,7 +430,6 @@ bool DatabaseManager::addCardTag(std::string cardId, std::string tagName, std::s
 }
 bool DatabaseManager::removeCardTag(std::string tagId) { return executeQuery("DELETE FROM KanbanTags WHERE ID='" + tagId + "'"); }
 
-// --- ARKADAŞLIK & ENGELLEME (FRIENDS & BLOCKS) ---
 bool DatabaseManager::sendFriendRequest(std::string myId, std::string targetUserId) { if (myId == targetUserId) return false; return executeQuery("INSERT INTO Friends (RequesterID, TargetID, Status) VALUES ('" + myId + "', '" + targetUserId + "', 0);"); }
 bool DatabaseManager::acceptFriendRequest(std::string requesterId, std::string myId) { return executeQuery("UPDATE Friends SET Status=1 WHERE RequesterID='" + requesterId + "' AND TargetID='" + myId + "'"); }
 bool DatabaseManager::rejectOrRemoveFriend(std::string otherUserId, std::string myId) { return executeQuery("DELETE FROM Friends WHERE (RequesterID='" + otherUserId + "' AND TargetID='" + myId + "') OR (RequesterID='" + myId + "' AND TargetID='" + otherUserId + "');"); }
@@ -451,18 +439,30 @@ std::vector<FriendRequest> DatabaseManager::getPendingRequests(std::string myId)
 }
 std::vector<User> DatabaseManager::getFriendsList(std::string myId) {
     std::vector<User> friends; std::string sql = "SELECT U.ID, U.Name, U.Email, U.Status, U.IsSystemAdmin, U.AvatarURL FROM Users U JOIN Friends F ON (U.ID=F.RequesterID OR U.ID=F.TargetID) WHERE (F.RequesterID='" + myId + "' OR F.TargetID='" + myId + "') AND F.Status=1 AND U.ID!='" + myId + "';"; sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) { while (sqlite3_step(stmt) == SQLITE_ROW) friends.push_back(User{ SAFE_TEXT(0), SAFE_TEXT(1), SAFE_TEXT(2), "", sqlite3_column_int(stmt, 4) != 0, SAFE_TEXT(3), SAFE_TEXT(5), 0, "", "" }); } sqlite3_finalize(stmt); return friends;
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            User u; u.id = SAFE_TEXT(0); u.name = SAFE_TEXT(1); u.email = SAFE_TEXT(2); u.status = SAFE_TEXT(3);
+            u.isSystemAdmin = (sqlite3_column_int(stmt, 4) != 0); u.avatarUrl = SAFE_TEXT(5); u.subscriptionLevel = "Normal";
+            u.subscriptionLevelInt = 0; u.subscriptionExpiresAt = ""; u.googleId = ""; friends.push_back(u);
+        }
+    } sqlite3_finalize(stmt); return friends;
 }
 std::vector<User> DatabaseManager::getBlockedUsers(std::string userId) {
     std::vector<User> blocked; sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db, "SELECT U.ID, U.Name, U.Email, U.Status, U.IsSystemAdmin, U.AvatarURL FROM Users U JOIN BlockedUsers B ON U.ID = B.BlockedID WHERE B.UserID = ?;", -1, &stmt, nullptr) == SQLITE_OK) { sqlite3_bind_text(stmt, 1, userId.c_str(), -1, SQLITE_TRANSIENT); while (sqlite3_step(stmt) == SQLITE_ROW) blocked.push_back(User{ SAFE_TEXT(0), SAFE_TEXT(1), SAFE_TEXT(2), "", sqlite3_column_int(stmt, 4) != 0, SAFE_TEXT(3), SAFE_TEXT(5), 0, "", "" }); } sqlite3_finalize(stmt); return blocked;
+    if (sqlite3_prepare_v2(db, "SELECT U.ID, U.Name, U.Email, U.Status, U.IsSystemAdmin, U.AvatarURL FROM Users U JOIN BlockedUsers B ON U.ID = B.BlockedID WHERE B.UserID = ?;", -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, userId.c_str(), -1, SQLITE_TRANSIENT);
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            User u; u.id = SAFE_TEXT(0); u.name = SAFE_TEXT(1); u.email = SAFE_TEXT(2); u.status = SAFE_TEXT(3);
+            u.isSystemAdmin = (sqlite3_column_int(stmt, 4) != 0); u.avatarUrl = SAFE_TEXT(5); u.subscriptionLevel = "Normal";
+            u.subscriptionLevelInt = 0; u.subscriptionExpiresAt = ""; u.googleId = ""; blocked.push_back(u);
+        }
+    } sqlite3_finalize(stmt); return blocked;
 }
 bool DatabaseManager::blockUser(std::string userId, std::string targetId) {
     sqlite3_stmt* stmt; if (sqlite3_prepare_v2(db, "INSERT OR IGNORE INTO BlockedUsers (UserID, BlockedID) VALUES (?, ?);", -1, &stmt, nullptr) == SQLITE_OK) { sqlite3_bind_text(stmt, 1, userId.c_str(), -1, SQLITE_TRANSIENT); sqlite3_bind_text(stmt, 2, targetId.c_str(), -1, SQLITE_TRANSIENT); bool s = (sqlite3_step(stmt) == SQLITE_DONE); sqlite3_finalize(stmt); return s; } return false;
 }
 bool DatabaseManager::unblockUser(std::string userId, std::string targetId) { return executeQuery("DELETE FROM BlockedUsers WHERE UserID='" + userId + "' AND BlockedID='" + targetId + "'"); }
 
-// --- ÖDEMELER & RAPORLAR ---
 bool DatabaseManager::isSubscriptionActive(std::string userId) {
     std::string sql = "SELECT SubscriptionLevel FROM Users WHERE ID = '" + userId + "';"; sqlite3_stmt* stmt; bool active = false;
     if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) { if (sqlite3_step(stmt) == SQLITE_ROW) if (sqlite3_column_int(stmt, 0) > 0) active = true; } sqlite3_finalize(stmt); return active;
@@ -515,18 +515,7 @@ void DatabaseManager::processKanbanNotifications() {
 }
 std::vector<NotificationDTO> DatabaseManager::getUserNotifications(const std::string& userId) {
     std::vector<NotificationDTO> notifs; std::string sql = "SELECT ID, Message, Type, CreatedAt FROM Notifications WHERE UserID = ? AND IsRead = 0 ORDER BY CreatedAt DESC;"; sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
-        sqlite3_bind_text(stmt, 1, userId.c_str(), -1, SQLITE_TRANSIENT);
-        while (sqlite3_step(stmt) == SQLITE_ROW) {
-            NotificationDTO n;
-            n.id = sqlite3_column_int(stmt, 0);
-            n.message = SAFE_TEXT(1);
-            n.type = SAFE_TEXT(2);
-            n.created_at = SAFE_TEXT(3);
-            notifs.push_back(n);
-        }
-    }
-    sqlite3_finalize(stmt); return notifs;
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) { sqlite3_bind_text(stmt, 1, userId.c_str(), -1, SQLITE_TRANSIENT); while (sqlite3_step(stmt) == SQLITE_ROW) notifs.push_back({ sqlite3_column_int(stmt, 0), SAFE_TEXT(1), SAFE_TEXT(2), SAFE_TEXT(3) }); } sqlite3_finalize(stmt); return notifs;
 }
 bool DatabaseManager::markNotificationAsRead(int notifId) {
     std::string sql = "UPDATE Notifications SET IsRead = 1 WHERE ID = ?;"; sqlite3_stmt* stmt;
