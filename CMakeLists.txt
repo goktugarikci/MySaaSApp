@@ -23,19 +23,19 @@ find_package(nlohmann_json CONFIG REQUIRED)
 # 2. PROGRAM: BACKEND SUNUCUSU (MySaaSApp.exe)
 # ==========================================================
 # Yeni modüler mimarideki tüm route (rota) dosyalarını dahil ediyoruz
+# 1. PROGRAM: BACKEND SUNUCUSU (Route'lar dahil edildi!)
 add_executable(MySaaSApp 
     src/main.cpp 
     src/db/DatabaseManager.cpp 
     src/utils/Security.cpp 
     src/utils/FileManager.cpp
-
-    src/routes/AuthRoutes.cpp
-    src/routes/UserRoutes.cpp
-    src/routes/ServerRoutes.cpp
-    src/routes/MessageRoutes.cpp
-    src/routes/KanbanRoutes.cpp
-    src/routes/WsRoutes.cpp
     src/routes/AdminRoutes.cpp
+    src/routes/AuthRoutes.cpp
+    src/routes/KanbanRoutes.cpp
+    src/routes/MessageRoutes.cpp
+    src/routes/ServerRoutes.cpp
+    src/routes/UserRoutes.cpp
+    src/routes/WsRoutes.cpp
 )
 
 target_link_libraries(MySaaSApp PRIVATE 
@@ -44,6 +44,7 @@ target_link_libraries(MySaaSApp PRIVATE
     cpr::cpr
     unofficial::argon2::libargon2
     jwt-cpp::jwt-cpp
+    nlohmann_json::nlohmann_json
 )
 
 # ==========================================================
@@ -60,5 +61,6 @@ target_link_libraries(AdminUI PRIVATE
     glfw
     OpenGL::GL
     cpr::cpr
+    Crow::Crow
     nlohmann_json::nlohmann_json
 )

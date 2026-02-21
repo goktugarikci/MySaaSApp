@@ -1,8 +1,7 @@
-#include "crow.h"
-#include "../db/DatabaseManager.h"
+#include "AdminRoutes.h"
 #include "../utils/Security.h"
 
-void setupAdminRoutes(crow::SimpleApp& app, DatabaseManager& db) {
+void AdminRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
 
     CROW_ROUTE(app, "/api/admin/stats")
         ([&db](const crow::request& req) {
@@ -26,7 +25,7 @@ void setupAdminRoutes(crow::SimpleApp& app, DatabaseManager& db) {
             res[i]["level"] = logs[i].level;
             res[i]["action"] = logs[i].action;
             res[i]["details"] = logs[i].details;
-            res[i]["created_at"] = logs[i].created_at; // DÜZELTİLDİ
+            res[i]["created_at"] = logs[i].created_at;
         }
         return crow::response(200, res);
             });
@@ -38,10 +37,10 @@ void setupAdminRoutes(crow::SimpleApp& app, DatabaseManager& db) {
         crow::json::wvalue res;
         for (size_t i = 0; i < archives.size(); ++i) {
             res[i]["id"] = archives[i].id;
-            res[i]["original_channel_id"] = archives[i].original_channel_id; // DÜZELTİLDİ
-            res[i]["sender_id"] = archives[i].sender_id;                     // DÜZELTİLDİ
+            res[i]["original_channel_id"] = archives[i].original_channel_id;
+            res[i]["sender_id"] = archives[i].sender_id;
             res[i]["content"] = archives[i].content;
-            res[i]["deleted_at"] = archives[i].deleted_at;                   // DÜZELTİLDİ
+            res[i]["deleted_at"] = archives[i].deleted_at;
         }
         return crow::response(200, res);
             });
