@@ -4,7 +4,7 @@
 #include <sqlite3.h>
 #include <optional>
 
-// MODELLERİ DAHİL ET
+// MEVCUT MODELLERİ DAHİL ET
 #include "../models/User.h"
 #include "../models/Server.h"
 #include "../models/Message.h"
@@ -12,14 +12,15 @@
 #include "../models/Payment.h"
 #include "../models/Requests.h"
 
-// --- DTO'lar VE EKSİK MODELLER BURADA TEK SEFER TANIMLANDI ---
+// --- DTO'LAR VE YARDIMCI YAPILAR (Çift tanımlamayı önlemek için sadece burada) ---
 struct SystemStats { int user_count; int server_count; int message_count; };
 struct UserReport { std::string id; std::string reporter_id; std::string content_id; std::string type; std::string reason; std::string status; };
-struct ServerLog { std::string timestamp; std::string action; std::string details; };
+struct ServerLog { std::string id; std::string server_id; std::string level; std::string action; std::string details; std::string created_at; };
 struct ServerMemberDetail { std::string id; std::string name; std::string status; };
 struct ServerInviteDTO { std::string server_id; std::string server_name; std::string inviter_name; std::string created_at; };
 struct NotificationDTO { int id; std::string message; std::string type; std::string created_at; };
-struct CardComment { std::string id; std::string card_id; std::string user_id; std::string content; std::string created_at; };
+struct CardComment { std::string id; std::string card_id; std::string sender_id; std::string sender_name; std::string content; std::string timestamp; };
+struct CardTag { std::string id; std::string tag_name; std::string color; };
 
 class DatabaseManager {
 private:
@@ -61,6 +62,7 @@ public:
     bool removeMemberFromServer(std::string serverId, std::string userId);
     bool joinServerByCode(std::string userId, const std::string& inviteCode);
     bool kickMember(std::string serverId, std::string userId);
+
     std::string getServerSettings(std::string serverId);
     bool updateServerSettings(std::string serverId, const std::string& settingsJson);
     bool hasServerPermission(std::string serverId, std::string userId, std::string permissionType);
@@ -74,24 +76,28 @@ public:
     std::vector<ServerMemberDetail> getServerMembersDetails(const std::string& serverId);
     std::vector<Server> getAllServers();
 
+    // --- SUNUCU DAVET SİSTEMİ ---
     bool sendServerInvite(std::string serverId, std::string inviterId, std::string inviteeId);
     bool resolveServerInvite(std::string serverId, std::string inviteeId, bool accept);
     std::vector<ServerInviteDTO> getPendingServerInvites(std::string userId);
 
+    // --- ROL VE YETKİLER ---
     bool createRole(std::string serverId, std::string roleName, int hierarchy, int permissions);
     std::vector<Role> getServerRoles(std::string serverId);
     std::string getServerIdByRoleId(std::string roleId);
     bool updateRole(std::string roleId, std::string name, int hierarchy, int permissions);
     bool deleteRole(std::string roleId);
     bool assignRoleToMember(std::string serverId, std::string userId, std::string roleId);
+    bool assignRole(std::string serverId, std::string userId, std::string roleId);
 
-    // --- KANAL YÖNETİMİ (AŞIRI YÜKLENMİŞ / OVERLOADED) ---
-    bool createChannel(std::string serverId, std::string name, int type); // 3 Parametreli
-    bool createChannel(std::string serverId, std::string name, int type, bool isPrivate); // 4 Parametreli
+    bool loginUser(const std::string& email, const std::string& rawPassword);
+    // --- KANAL YÖNETİMİ ---
+    bool createChannel(std::string serverId, std::string name, int type);
+    bool createChannel(std::string serverId, std::string name, int type, bool isPrivate);
     bool updateChannel(std::string channelId, const std::string& name);
     bool deleteChannel(std::string channelId);
-    std::vector<Channel> getServerChannels(std::string serverId); // 1 Parametreli
-    std::vector<Channel> getServerChannels(std::string serverId, std::string userId); // 2 Parametreli
+    std::vector<Channel> getServerChannels(std::string serverId);
+    std::vector<Channel> getServerChannels(std::string serverId, std::string userId);
     int getServerKanbanCount(std::string serverId);
     bool hasChannelAccess(std::string channelId, std::string userId);
     bool addMemberToChannel(std::string channelId, std::string userId);
@@ -103,19 +109,20 @@ public:
     bool deleteMessage(std::string messageId);
     std::vector<Message> getChannelMessages(std::string channelId, int limit = 50);
     std::string getOrCreateDMChannel(std::string user1Id, std::string user2Id);
+
     bool addMessageReaction(std::string messageId, std::string userId, std::string reaction);
     bool removeMessageReaction(std::string messageId, std::string userId, std::string reaction);
     bool addThreadReply(std::string messageId, std::string senderId, std::string content);
     std::vector<Message> getThreadReplies(std::string messageId);
 
-    // --- KANBAN SİSTEMİ (YORUMLAR VE ETİKETLER DAHİL) ---
+    // --- KANBAN SİSTEMİ ---
     std::vector<KanbanList> getKanbanBoard(std::string channelId);
     bool createKanbanList(std::string boardChannelId, std::string title);
     bool updateKanbanList(std::string listId, const std::string& title, int position);
     bool deleteKanbanList(std::string listId);
 
-    bool createKanbanCard(std::string listId, std::string title, std::string desc, int priority); // 4 Parametreli
-    bool createKanbanCard(std::string listId, std::string title, std::string desc, int priority, std::string assigneeId, std::string attachmentUrl, std::string dueDate); // 7 Parametreli
+    bool createKanbanCard(std::string listId, std::string title, std::string desc, int priority);
+    bool createKanbanCard(std::string listId, std::string title, std::string desc, int priority, std::string assigneeId, std::string attachmentUrl, std::string dueDate);
 
     bool updateKanbanCard(std::string cardId, std::string title, std::string description, int priority);
     bool deleteKanbanCard(std::string cardId);
@@ -126,10 +133,11 @@ public:
 
     std::vector<CardComment> getCardComments(std::string cardId);
     bool addCardComment(std::string cardId, std::string userId, std::string content);
-    bool deleteCardComment(std::string commentId);
-    std::vector<std::string> getCardTags(std::string cardId);
-    bool addCardTag(std::string cardId, std::string tag);
-    bool removeCardTag(std::string cardId, std::string tag);
+    bool deleteCardComment(std::string commentId, std::string userId);
+
+    std::vector<CardTag> getCardTags(std::string cardId);
+    bool addCardTag(std::string cardId, std::string tagName, std::string color);
+    bool removeCardTag(std::string tagId);
 
     // --- ARKADAŞLIK VE ENGELLEME SİSTEMİ ---
     bool sendFriendRequest(std::string myId, std::string targetUserId);

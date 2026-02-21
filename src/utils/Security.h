@@ -1,14 +1,20 @@
 #pragma once
 #include <string>
 #include <random>
+#include "crow.h"
 
-class DatabaseManager; // Forward declaration
+// Circular dependency (Döngüsel bağımlılık) olmaması için ön tanımlama yapıyoruz
+class DatabaseManager;
 
 class Security {
 public:
+    // Şifreyi tuzlar ve hashler
     static std::string hashPassword(const std::string& password);
+
+    // Girilen şifrenin doğruluğunu kontrol eder
     static bool verifyPassword(const std::string& password, const std::string& hash);
 
+    // 15 Karakterlik Güvenli Rastgele ID Üretici
     static std::string generateId(int length = 15) {
         const std::string chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
         std::random_device rd;
@@ -21,10 +27,7 @@ public:
         return result;
     }
 
-    static std::string generateJwt(const std::string& userId);
-    static bool verifyJwt(const std::string& token, std::string& outUserId);
-
-    // Crow request nesnesini alıp JWT doğrulaması yapan yardımcı metotlar
-    static std::string getUserIdFromHeader(const void* req_ptr);
-    static bool checkAuth(const void* req_ptr, DatabaseManager* db, bool requireAdmin = false);
+    // --- YENİ EKLENEN AUTH (GÜVENLİK) FONKSİYONLARI ---
+    static bool checkAuth(const crow::request& req, DatabaseManager& db, bool requireAdmin = false);
+    static std::string getUserIdFromHeader(const crow::request& req);
 };

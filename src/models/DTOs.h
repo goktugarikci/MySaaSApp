@@ -1,49 +1,32 @@
 #pragma once
 #include <string>
 
-// İstatistikler
-struct SystemStats {
-    int user_count;
-    int server_count;
-    int message_count;
-};
+struct SystemStats { int user_count; int server_count; int message_count; };
 
-// Rapor Modeli
-struct UserReport {
-    std::string id;
-    std::string reporter_id;
-    std::string content_id;
-    std::string type;
-    std::string reason;
-    std::string status;
-};
-
-// Sunucu Logları
 struct ServerLog {
-    std::string timestamp;
+    std::string id;          // Rota Beklentisi
+    std::string server_id;
+    std::string level;       // Rota Beklentisi
     std::string action;
     std::string details;
+    std::string created_at;
 };
 
-// Sunucu Üye Detayları
-struct ServerMemberDetail {
+struct ServerMemberDetail { std::string id; std::string name; std::string status; };
+struct ServerInviteDTO { std::string server_id; std::string server_name; std::string inviter_name; std::string created_at; };
+struct NotificationDTO { int id; std::string message; std::string type; std::string created_at; };
+
+struct CardComment {
     std::string id;
-    std::string name;
-    std::string status;
+    std::string card_id;
+    std::string sender_id;   // Rota Beklentisi
+    std::string sender_name; // Rota Beklentisi
+    std::string content;
+    std::string timestamp;   // Rota Beklentisi
 };
 
-// Sunucu Davetleri
-struct ServerInviteDTO {
-    std::string server_id;
-    std::string server_name;
-    std::string inviter_name;
-    std::string created_at;
-};
-
-// Sistem Bildirimleri
-struct NotificationDTO {
-    int id;
-    std::string message;
-    std::string type;
-    std::string created_at;
+struct CardTag {
+    std::string id;          // Rota Beklentisi
+    std::string tag_name;    // Rota Beklentisi
+    std::string color;       // Rota Beklentisi
 };

@@ -1,131 +1,94 @@
-#include "MessageRoutes.h"
+#include "crow.h"
+#include "../db/DatabaseManager.h"
 #include "../utils/Security.h"
-#include <crow/json.h>
 
-// WINDOWS MAKRO ÇAKIŞMASI ÇÖZÜMÜ
-#ifdef _WIN32
-#undef DELETE
-#endif
+void setupMessageRoutes(crow::SimpleApp& app, DatabaseManager& db) {
 
-void MessageRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
-    CROW_ROUTE(app, "/api/channels/<string>/messages").methods(crow::HTTPMethod::GET)
+    // 1. BİR KANALDAKİ MESAJLARI GETİR
+    CROW_ROUTE(app, "/api/channels/<string>/messages").methods("GET"_method)
         ([&db](const crow::request& req, std::string channelId) {
-        if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
+        if (!Security::checkAuth(req, db)) return crow::response(401);
 
-        char* limitParam = req.url_params.get("limit");
-        int limit = limitParam ? std::stoi(limitParam) : 50;
-
-        auto messages = db.getChannelMessages(channelId, limit);
-
+        std::vector<Message> messages = db.getChannelMessages(channelId, 50);
         crow::json::wvalue res;
         for (size_t i = 0; i < messages.size(); ++i) {
-            res[i]["id"] = messages[i].id;
-            res[i]["sender_id"] = messages[i].senderId;
-            res[i]["sender_name"] = messages[i].senderName;
-            res[i]["sender_avatar"] = messages[i].senderAvatar;
-            res[i]["content"] = messages[i].content;
-            res[i]["attachment_url"] = messages[i].attachmentUrl;
-            res[i]["timestamp"] = messages[i].timestamp;
+            res[i] = messages[i].toJson();
         }
         return crow::response(200, res);
             });
 
-    CROW_ROUTE(app, "/api/channels/<string>/messages").methods(crow::HTTPMethod::POST)
+    // 2. KANALA YENİ MESAJ GÖNDER
+    CROW_ROUTE(app, "/api/channels/<string>/messages").methods("POST"_method)
         ([&db](const crow::request& req, std::string channelId) {
-        if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
+        if (!Security::checkAuth(req, db)) return crow::response(401);
+        auto x = crow::json::load(req.body);
+        if (!x || !x.has("content")) return crow::response(400);
 
-        auto body = crow::json::load(req.body);
-        if (!body || !body.has("content")) return crow::response(400, "Mesaj icerigi (content) gerekli");
+        std::string attachmentUrl = x.has("attachment_url") ? std::string(x["attachment_url"].s()) : "";
+        std::string userId = Security::getUserIdFromHeader(req);
 
-        std::string userId = Security::getUserIdFromHeader(&req);
-        std::string content = body["content"].s();
-        std::string attachmentUrl = body.has("attachment_url") ? std::string(body["attachment_url"].s()) : std::string("");
-
-        if (db.sendMessage(channelId, userId, content, attachmentUrl)) {
-            return crow::response(201, "Mesaj gonderildi");
+        if (db.sendMessage(channelId, userId, std::string(x["content"].s()), attachmentUrl)) {
+            return crow::response(201, "Mesaj gonderildi.");
         }
-        return crow::response(500, "Mesaj gonderilemedi");
+        return crow::response(500);
             });
 
-    CROW_ROUTE(app, "/api/messages/<string>").methods(crow::HTTPMethod::PUT)
+    // 3. MESAJI GÜNCELLE (DÜZENLE)
+    CROW_ROUTE(app, "/api/messages/<string>").methods("PUT"_method)
         ([&db](const crow::request& req, std::string messageId) {
-        if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
+        if (!Security::checkAuth(req, db)) return crow::response(401);
+        auto x = crow::json::load(req.body);
+        if (!x || !x.has("content")) return crow::response(400);
 
-        auto body = crow::json::load(req.body);
-        if (!body || !body.has("content")) return crow::response(400, "Yeni mesaj icerigi (content) gerekli");
-
-        std::string newContent = body["content"].s();
-
-        if (db.updateMessage(messageId, newContent)) {
-            return crow::response(200, "Mesaj guncellendi");
+        if (db.updateMessage(messageId, std::string(x["content"].s()))) {
+            return crow::response(200, "Mesaj guncellendi.");
         }
-        return crow::response(500, "Mesaj guncellenemedi");
+        return crow::response(500);
             });
 
-    CROW_ROUTE(app, "/api/messages/<string>").methods(crow::HTTPMethod::DELETE)
+    // 4. MESAJI SİL
+    CROW_ROUTE(app, "/api/messages/<string>").methods("DELETE"_method)
         ([&db](const crow::request& req, std::string messageId) {
-        if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
+        if (!Security::checkAuth(req, db)) return crow::response(401);
 
         if (db.deleteMessage(messageId)) {
-            return crow::response(200, "Mesaj silindi");
+            return crow::response(200, "Mesaj silindi.");
         }
-        return crow::response(500, "Mesaj silinemedi");
+        return crow::response(500);
             });
 
-    CROW_ROUTE(app, "/api/messages/<string>/react").methods(crow::HTTPMethod::POST)
+    // 5. MESAJA TEPKİ (EMOJİ) EKLE
+    CROW_ROUTE(app, "/api/messages/<string>/reactions").methods("POST"_method)
         ([&db](const crow::request& req, std::string messageId) {
-        if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
+        if (!Security::checkAuth(req, db)) return crow::response(401);
+        auto x = crow::json::load(req.body);
+        if (!x || !x.has("reaction")) return crow::response(400);
 
-        auto body = crow::json::load(req.body);
-        if (!body || !body.has("emoji")) return crow::response(400, "Emoji bilgisi gerekli");
-
-        std::string userId = Security::getUserIdFromHeader(&req);
-        std::string emoji = body["emoji"].s();
-
-        if (db.addMessageReaction(messageId, userId, emoji)) {
-            return crow::response(201, "Tepki eklendi");
+        std::string userId = Security::getUserIdFromHeader(req);
+        if (db.addMessageReaction(messageId, userId, std::string(x["reaction"].s()))) {
+            return crow::response(201, "Tepki eklendi.");
         }
-        return crow::response(500, "Tepki eklenemedi");
+        return crow::response(500);
             });
 
-    CROW_ROUTE(app, "/api/messages/<string>/react").methods(crow::HTTPMethod::DELETE)
+    // 6. MESAJDAKİ TEPKİYİ KALDIR
+    CROW_ROUTE(app, "/api/messages/<string>/reactions/<string>").methods("DELETE"_method)
+        ([&db](const crow::request& req, std::string messageId, std::string reaction) {
+        if (!Security::checkAuth(req, db)) return crow::response(401);
+
+        std::string userId = Security::getUserIdFromHeader(req);
+        if (db.removeMessageReaction(messageId, userId, reaction)) {
+            return crow::response(200, "Tepki kaldirildi.");
+        }
+        return crow::response(500);
+            });
+
+    // 7. BİR MESAJIN ALT YANITLARINI (THREAD) GETİR
+    CROW_ROUTE(app, "/api/messages/<string>/thread").methods("GET"_method)
         ([&db](const crow::request& req, std::string messageId) {
-        if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
+        if (!Security::checkAuth(req, db)) return crow::response(401);
 
-        auto body = crow::json::load(req.body);
-        if (!body || !body.has("emoji")) return crow::response(400, "Emoji bilgisi gerekli");
-
-        std::string userId = Security::getUserIdFromHeader(&req);
-        std::string emoji = body["emoji"].s();
-
-        if (db.removeMessageReaction(messageId, userId, emoji)) {
-            return crow::response(200, "Tepki kaldirildi");
-        }
-        return crow::response(500, "Tepki kaldirilamadi");
-            });
-
-    CROW_ROUTE(app, "/api/messages/<string>/reply").methods(crow::HTTPMethod::POST)
-        ([&db](const crow::request& req, std::string parentMessageId) {
-        if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
-
-        auto body = crow::json::load(req.body);
-        if (!body || !body.has("content")) return crow::response(400, "Yanit icerigi (content) gerekli");
-
-        std::string userId = Security::getUserIdFromHeader(&req);
-        std::string content = body["content"].s();
-
-        if (db.addThreadReply(parentMessageId, userId, content)) {
-            return crow::response(201, "Yanit eklendi");
-        }
-        return crow::response(500, "Yanit eklenemedi");
-            });
-
-    CROW_ROUTE(app, "/api/messages/<string>/replies").methods(crow::HTTPMethod::GET)
-        ([&db](const crow::request& req, std::string parentMessageId) {
-        if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
-
-        auto replies = db.getThreadReplies(parentMessageId);
-
+        std::vector<Message> replies = db.getThreadReplies(messageId);
         crow::json::wvalue res;
         for (size_t i = 0; i < replies.size(); ++i) {
             res[i]["id"] = replies[i].id;
@@ -137,26 +100,17 @@ void MessageRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(200, res);
             });
 
-    CROW_ROUTE(app, "/api/users/dm").methods(crow::HTTPMethod::POST)
-        ([&db](const crow::request& req) {
-        if (!Security::checkAuth(&req, &db)) return crow::response(401, "Yetkisiz Erisim");
+    // 8. BİR MESAJA ALT YANIT (THREAD) YAZ
+    CROW_ROUTE(app, "/api/messages/<string>/thread").methods("POST"_method)
+        ([&db](const crow::request& req, std::string messageId) {
+        if (!Security::checkAuth(req, db)) return crow::response(401);
+        auto x = crow::json::load(req.body);
+        if (!x || !x.has("content")) return crow::response(400);
 
-        auto body = crow::json::load(req.body);
-        if (!body || !body.has("target_user_id")) return crow::response(400, "Hedef kullanici (target_user_id) gerekli");
-
-        std::string myId = Security::getUserIdFromHeader(&req);
-        std::string targetId = body["target_user_id"].s();
-
-        if (myId == targetId) return crow::response(400, "Kendinizle DM baslatamazsiniz");
-
-        std::string dmChannelId = db.getOrCreateDMChannel(myId, targetId);
-
-        if (!dmChannelId.empty()) {
-            crow::json::wvalue res;
-            res["channel_id"] = dmChannelId;
-            res["message"] = std::string("DM kanali hazir");
-            return crow::response(200, res);
+        std::string userId = Security::getUserIdFromHeader(req);
+        if (db.addThreadReply(messageId, userId, std::string(x["content"].s()))) {
+            return crow::response(201, "Yanit eklendi.");
         }
-        return crow::response(500, "DM kanali olusturulamadi");
+        return crow::response(500);
             });
 }
