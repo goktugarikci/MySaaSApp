@@ -32,7 +32,6 @@ int main() {
     KanbanRoutes::setup(app, db);
     WsRoutes::setup(app, db);
     AdminRoutes::setup(app, db);
-
     // 4. Arka Plan Temizlik ve Bildirim Botları
     std::thread cleanupThread([&db]() {
         while (true) { std::this_thread::sleep_for(std::chrono::seconds(15)); db.markInactiveUsersOffline(60); }

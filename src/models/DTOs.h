@@ -4,12 +4,22 @@
 struct SystemStats { int user_count; int server_count; int message_count; };
 
 struct ServerLog {
-    std::string id;          // Rota Beklentisi
+    std::string id;
     std::string server_id;
-    std::string level;       // Rota Beklentisi
+    std::string level;
     std::string action;
     std::string details;
     std::string created_at;
+};
+
+// EKSİK OLAN UserReport BURAYA EKLENDİ
+struct UserReport {
+    std::string id;
+    std::string reporter_id;
+    std::string content_id;
+    std::string type;
+    std::string reason;
+    std::string status;
 };
 
 struct ServerMemberDetail { std::string id; std::string name; std::string status; };
@@ -19,14 +29,14 @@ struct NotificationDTO { int id; std::string message; std::string type; std::str
 struct CardComment {
     std::string id;
     std::string card_id;
-    std::string sender_id;   // Rota Beklentisi
-    std::string sender_name; // Rota Beklentisi
+    std::string sender_id;
+    std::string sender_name;
     std::string content;
-    std::string timestamp;   // Rota Beklentisi
+    std::string timestamp;
 };
 
 struct CardTag {
-    std::string id;          // Rota Beklentisi
-    std::string tag_name;    // Rota Beklentisi
-    std::string color;       // Rota Beklentisi
+    std::string id;
+    std::string tag_name;
+    std::string color;
 };

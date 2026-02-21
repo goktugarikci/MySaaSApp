@@ -1,8 +1,7 @@
-#include "crow.h"
-#include "../db/DatabaseManager.h"
+#include "UserRoutes.h"
 #include "../utils/Security.h"
 
-void setupUserRoutes(crow::SimpleApp& app, DatabaseManager& db) {
+void UserRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
 
     // ==========================================================
     // 1. KULLANICI PROFİL İŞLEMLERİ
@@ -63,6 +62,7 @@ void setupUserRoutes(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(200, res);
             });
 
+
     // ==========================================================
     // 2. KULLANICI DURUMU & PING (AKTİFLİK)
     // ==========================================================
@@ -89,21 +89,21 @@ void setupUserRoutes(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(500);
             });
 
+
     // ==========================================================
     // 3. ARKADAŞLIK İŞLEMLERİ
     // ==========================================================
 
     // Mevcut arkadaşları listele
-        CROW_ROUTE(app, "/api/friends")
-            ([&db](const crow::request& req) {
-            if (!Security::checkAuth(req, db)) return crow::response(401);
-            auto friends = db.getFriendsList(Security::getUserIdFromHeader(req));
-            crow::json::wvalue res;
-            for (size_t i = 0; i < friends.size(); ++i) {
-                res[i] = friends[i].toJson(); // User.h içindeki toJson çağrılır
-            }
-            return crow::response(200, res);
-                });
+    CROW_ROUTE(app, "/api/friends")
+        ([&db](const crow::request& req) {
+        if (!Security::checkAuth(req, db)) return crow::response(401);
+
+        auto friends = db.getFriendsList(Security::getUserIdFromHeader(req));
+        crow::json::wvalue res;
+        for (size_t i = 0; i < friends.size(); i++) res[i] = friends[i].toJson();
+        return crow::response(200, res);
+            });
 
     // Gelen istekleri listele
     CROW_ROUTE(app, "/api/friends/requests")
@@ -149,6 +149,7 @@ void setupUserRoutes(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(500);
             });
 
+
     // ==========================================================
     // 4. KULLANICI ENGELLEME
     // ==========================================================
@@ -170,7 +171,7 @@ void setupUserRoutes(crow::SimpleApp& app, DatabaseManager& db) {
             if (!x || !x.has("target_id")) return crow::response(400);
 
             std::string targetId = std::string(x["target_id"].s());
-            db.rejectOrRemoveFriend(targetId, myId); // Arkadaşlıktan çıkar
+            db.rejectOrRemoveFriend(targetId, myId); // Engellemeden önce arkadaşlıktan çıkar
 
             if (db.blockUser(myId, targetId)) return crow::response(201, "Kullanici engellendi.");
             return crow::response(500);
@@ -185,6 +186,7 @@ void setupUserRoutes(crow::SimpleApp& app, DatabaseManager& db) {
         if (db.unblockUser(Security::getUserIdFromHeader(req), targetId)) return crow::response(200, "Engel kaldirildi.");
         return crow::response(500);
             });
+
 
     // ==========================================================
     // 5. BİLDİRİMLER VE DAVETLER
@@ -206,7 +208,7 @@ void setupUserRoutes(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(200, res);
             });
 
-    // Sistem (Süre, vb) Bildirimlerini Görüntüle
+    // Sistem (Süre vb.) Bildirimlerini Görüntüle
     CROW_ROUTE(app, "/api/notifications").methods("GET"_method)
         ([&db](const crow::request& req) {
         if (!Security::checkAuth(req, db)) return crow::response(401);
