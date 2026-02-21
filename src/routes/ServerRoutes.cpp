@@ -1,8 +1,7 @@
-#include "crow.h"
-#include "../db/DatabaseManager.h"
+#include "ServerRoutes.h"
 #include "../utils/Security.h"
 
-void setupServerRoutes(crow::SimpleApp& app, DatabaseManager& db) {
+void ServerRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
 
     CROW_ROUTE(app, "/api/servers").methods("GET"_method)
         ([&db](const crow::request& req) {
@@ -13,10 +12,10 @@ void setupServerRoutes(crow::SimpleApp& app, DatabaseManager& db) {
         for (size_t i = 0; i < servers.size(); ++i) {
             res[i]["id"] = servers[i].id;
             res[i]["name"] = servers[i].name;
-            res[i]["owner_id"] = servers[i].owner_id;         // DÜZELTİLDİ
-            res[i]["invite_code"] = servers[i].invite_code;   // DÜZELTİLDİ
-            res[i]["icon_url"] = servers[i].icon_url;         // DÜZELTİLDİ
-            res[i]["member_count"] = servers[i].member_count; // DÜZELTİLDİ
+            res[i]["owner_id"] = servers[i].owner_id;
+            res[i]["invite_code"] = servers[i].invite_code;
+            res[i]["icon_url"] = servers[i].icon_url;
+            res[i]["member_count"] = servers[i].member_count;
         }
         return crow::response(200, res);
             });
@@ -48,7 +47,6 @@ void setupServerRoutes(crow::SimpleApp& app, DatabaseManager& db) {
 
         bool isPrivate = x.has("is_private") ? x["is_private"].b() : false;
 
-        // DÜZELTİLDİ: Artık doğru şekilde 4 parametre alıyor
         if (db.createChannel(serverId, std::string(x["name"].s()), x["type"].i(), isPrivate)) {
             return crow::response(201);
         }
@@ -60,7 +58,6 @@ void setupServerRoutes(crow::SimpleApp& app, DatabaseManager& db) {
         if (!Security::checkAuth(req, db)) return crow::response(401);
         std::string userId = Security::getUserIdFromHeader(req);
 
-        // DÜZELTİLDİ: 2 parametre ile çağırma işlemi
         std::vector<Channel> channels = db.getServerChannels(serverId, userId);
         crow::json::wvalue res;
         for (size_t i = 0; i < channels.size(); ++i) res[i] = channels[i].toJson();

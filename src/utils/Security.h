@@ -8,9 +8,11 @@ class DatabaseManager;
 
 class Security {
 public:
+    // Şifreleme metotları
     static std::string hashPassword(const std::string& password);
     static bool verifyPassword(const std::string& password, const std::string& hash);
 
+    // Rastgele ID üretici
     static std::string generateId(int length = 15) {
         const std::string chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
         std::random_device rd;
@@ -21,7 +23,8 @@ public:
         return result;
     }
 
-    // --- YENİ AUTH METOTLARI ---
+    // --- JWT VE KİMLİK DOĞRULAMA (AUTH) METOTLARI ---
+    static std::string generateJwt(const std::string& userId); // EKSİK OLAN METOT EKLENDİ
     static bool checkAuth(const crow::request& req, DatabaseManager& db, bool requireAdmin = false);
     static std::string getUserIdFromHeader(const crow::request& req);
 };

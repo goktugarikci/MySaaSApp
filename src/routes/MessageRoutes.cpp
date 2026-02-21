@@ -1,14 +1,11 @@
-#include "crow.h"
-#include "../db/DatabaseManager.h"
+#include "MessageRoutes.h"
 #include "../utils/Security.h"
 
-void setupMessageRoutes(crow::SimpleApp& app, DatabaseManager& db) {
+void MessageRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
 
-    // 1. BİR KANALDAKİ MESAJLARI GETİR
     CROW_ROUTE(app, "/api/channels/<string>/messages").methods("GET"_method)
         ([&db](const crow::request& req, std::string channelId) {
         if (!Security::checkAuth(req, db)) return crow::response(401);
-
         std::vector<Message> messages = db.getChannelMessages(channelId, 50);
         crow::json::wvalue res;
         for (size_t i = 0; i < messages.size(); ++i) {
@@ -17,7 +14,6 @@ void setupMessageRoutes(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(200, res);
             });
 
-    // 2. KANALA YENİ MESAJ GÖNDER
     CROW_ROUTE(app, "/api/channels/<string>/messages").methods("POST"_method)
         ([&db](const crow::request& req, std::string channelId) {
         if (!Security::checkAuth(req, db)) return crow::response(401);
@@ -33,7 +29,6 @@ void setupMessageRoutes(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(500);
             });
 
-    // 3. MESAJI GÜNCELLE (DÜZENLE)
     CROW_ROUTE(app, "/api/messages/<string>").methods("PUT"_method)
         ([&db](const crow::request& req, std::string messageId) {
         if (!Security::checkAuth(req, db)) return crow::response(401);
@@ -46,24 +41,20 @@ void setupMessageRoutes(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(500);
             });
 
-    // 4. MESAJI SİL
     CROW_ROUTE(app, "/api/messages/<string>").methods("DELETE"_method)
         ([&db](const crow::request& req, std::string messageId) {
         if (!Security::checkAuth(req, db)) return crow::response(401);
-
         if (db.deleteMessage(messageId)) {
             return crow::response(200, "Mesaj silindi.");
         }
         return crow::response(500);
             });
 
-    // 5. MESAJA TEPKİ (EMOJİ) EKLE
     CROW_ROUTE(app, "/api/messages/<string>/reactions").methods("POST"_method)
         ([&db](const crow::request& req, std::string messageId) {
         if (!Security::checkAuth(req, db)) return crow::response(401);
         auto x = crow::json::load(req.body);
         if (!x || !x.has("reaction")) return crow::response(400);
-
         std::string userId = Security::getUserIdFromHeader(req);
         if (db.addMessageReaction(messageId, userId, std::string(x["reaction"].s()))) {
             return crow::response(201, "Tepki eklendi.");
@@ -71,11 +62,9 @@ void setupMessageRoutes(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(500);
             });
 
-    // 6. MESAJDAKİ TEPKİYİ KALDIR
     CROW_ROUTE(app, "/api/messages/<string>/reactions/<string>").methods("DELETE"_method)
         ([&db](const crow::request& req, std::string messageId, std::string reaction) {
         if (!Security::checkAuth(req, db)) return crow::response(401);
-
         std::string userId = Security::getUserIdFromHeader(req);
         if (db.removeMessageReaction(messageId, userId, reaction)) {
             return crow::response(200, "Tepki kaldirildi.");
@@ -83,11 +72,9 @@ void setupMessageRoutes(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(500);
             });
 
-    // 7. BİR MESAJIN ALT YANITLARINI (THREAD) GETİR
     CROW_ROUTE(app, "/api/messages/<string>/thread").methods("GET"_method)
         ([&db](const crow::request& req, std::string messageId) {
         if (!Security::checkAuth(req, db)) return crow::response(401);
-
         std::vector<Message> replies = db.getThreadReplies(messageId);
         crow::json::wvalue res;
         for (size_t i = 0; i < replies.size(); ++i) {
@@ -100,7 +87,6 @@ void setupMessageRoutes(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(200, res);
             });
 
-    // 8. BİR MESAJA ALT YANIT (THREAD) YAZ
     CROW_ROUTE(app, "/api/messages/<string>/thread").methods("POST"_method)
         ([&db](const crow::request& req, std::string messageId) {
         if (!Security::checkAuth(req, db)) return crow::response(401);

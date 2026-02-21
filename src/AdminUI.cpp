@@ -19,7 +19,7 @@
 // 2. AĞ VE JSON KÜTÜPHANELERİ
 // =============================================================
 #include <cpr/cpr.h>
-#include <nlohmann/json.hpp> // CROW YERİNE SADECE NLOHMANN JSON KULLANILIYOR
+#include <nlohmann/json.hpp> 
 
 using json = nlohmann::json;
 
@@ -45,16 +45,9 @@ using json = nlohmann::json;
 #include <sstream>
 #include <cmath> 
 
-// --- UYGULAMA DURUMU (STATE) VE KİMLİK ---
-enum class AppState { LOGIN, DASHBOARD };
-AppState currentState = AppState::LOGIN;
-
-std::string jwtToken = "";
-std::string loggedInUserId = "";
-char emailBuffer[128] = "admin@mysaas.com";
-char passwordBuffer[128] = "";
-std::string loginErrorMessage = "";
-
+// --- UYGULAMA DURUMU VE OTOMATİK KİMLİK (SUPER ADMIN BYPASS) ---
+std::string jwtToken = "mock-jwt-token-aB3dE7xY9Z1kL0m"; // Otomatik yetki anahtarı
+std::string loggedInUserId = "aB3dE7xY9Z1kL0m";
 const std::string API_BASE_URL = "http://localhost:8080/api";
 
 // --- SİSTEM DONANIM DEĞİŞKENLERİ ---
@@ -109,39 +102,6 @@ bool show_ban_list = false;
 bool show_user_stats = false;
 bool show_server_stats = false;
 std::string active_stats_id = "";
-
-// =============================================================
-// GİRİŞ (LOGIN) FONKSİYONU
-// =============================================================
-void attemptLogin() {
-    loginErrorMessage = "";
-    json payload = {
-        {"email", std::string(emailBuffer)},
-        {"password", std::string(passwordBuffer)}
-    };
-
-    auto response = cpr::Post(
-        cpr::Url{ API_BASE_URL + "/auth/login" },
-        cpr::Header{ {"Content-Type", "application/json"} },
-        cpr::Body{ payload.dump() }
-    );
-
-    if (response.status_code == 200) {
-        auto resJson = json::parse(response.text, nullptr, false);
-        if (!resJson.is_discarded() && resJson.contains("token")) {
-            jwtToken = resJson.value("token", "");
-            loggedInUserId = resJson.value("user_id", "");
-            currentState = AppState::DASHBOARD;
-            consoleLog.push_back("[SISTEM] Super Admin oturumu acildi. Token Alindi.");
-        }
-    }
-    else if (response.status_code == 401 || response.status_code == 403) {
-        loginErrorMessage = "Hata: Yetkisiz giris! E-posta veya sifre yanlis.";
-    }
-    else {
-        loginErrorMessage = "Hata: Sunucuya baglanilamadi! (Sunucu acik mi?)";
-    }
-}
 
 // =============================================================
 // YARDIMCI FONKSİYONLAR (SUNUCU VE DONANIM)
@@ -211,7 +171,6 @@ void StartBackendServer() {
 
     PROCESS_INFORMATION pi;
 
-    // Program adını NULL olan ilk parametreye aldık ve güvenliği sağladık.
     if (CreateProcessA("MySaaSApp.exe", NULL, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
         CloseHandle(pi.hProcess);
         CloseHandle(pi.hThread);
@@ -225,7 +184,7 @@ void StartBackendServer() {
     }
     else {
         std::lock_guard<std::mutex> lock(httpLogMutex);
-        http_traffic_log.push_back("[HATA] Sunucu baslatilamadi! MySaaSApp.exe bulunamadi.");
+        http_traffic_log.push_back("[HATA] Sunucu baslatilamadi! MySaaSApp.exe ayni klasorde mi?");
     }
 }
 
@@ -322,22 +281,21 @@ void UpdateHardwareMetrics() {
 }
 
 // =============================================================
-// ASENKRON API İSTEKLERİ (NLOHMANN JSON İLE GÜNCELLENDİ)
+// ASENKRON API İSTEKLERİ 
 // =============================================================
 void FetchUsersAsync() {
-    if (isFetchingUsers || jwtToken.empty()) return;
+    if (isFetchingUsers) return;
     isFetchingUsers = true;
     consoleLog.push_back("[SISTEM] Backend'den kullanici verileri cekiliyor...");
 
     std::thread([]() {
-        cpr::Response r = cpr::Get(cpr::Url{ API_BASE_URL + "/admin/logs/system" }, cpr::Header{ {"Authorization", "Bearer " + jwtToken} });
+        cpr::Response r = cpr::Get(cpr::Url{ API_BASE_URL + "/admin/logs/system" }, cpr::Header{ {"Authorization", jwtToken} });
         if (r.status_code == 200) {
             try {
                 auto j = json::parse(r.text, nullptr, false);
                 if (!j.is_discarded() && j.is_array()) {
                     std::lock_guard<std::mutex> lock(userListMutex);
                     userList.clear();
-                    // Gerçek bir sistemde "/api/admin/users" endpointine gidilir, şimdilik örnek parse yapısı eklendi.
                     for (const auto& item : j) {
                         AdminUser u;
                         u.id = item.value("id", "N/A");
@@ -360,12 +318,12 @@ void FetchUsersAsync() {
 }
 
 void FetchServersAsync() {
-    if (isFetchingServers || jwtToken.empty()) return;
+    if (isFetchingServers) return;
     isFetchingServers = true;
     consoleLog.push_back("[SISTEM] Backend'den sunucu verileri cekiliyor...");
 
     std::thread([]() {
-        cpr::Response r = cpr::Get(cpr::Url{ API_BASE_URL + "/servers" }, cpr::Header{ {"Authorization", "Bearer " + jwtToken} });
+        cpr::Response r = cpr::Get(cpr::Url{ API_BASE_URL + "/servers" }, cpr::Header{ {"Authorization", jwtToken} });
         if (r.status_code == 200) {
             try {
                 auto j = json::parse(r.text, nullptr, false);
@@ -393,7 +351,7 @@ void FetchServersAsync() {
 }
 
 void FetchUserStatsAsync(std::string userId) {
-    if (isFetchingStats || jwtToken.empty()) return;
+    if (isFetchingStats) return;
     isFetchingStats = true;
 
     {
@@ -403,7 +361,7 @@ void FetchUserStatsAsync(std::string userId) {
 
     std::thread([userId]() {
         cpr::Response r = cpr::Get(cpr::Url{ API_BASE_URL + "/admin/users/" + userId + "/servers" },
-            cpr::Header{ {"Authorization", "Bearer " + jwtToken} });
+            cpr::Header{ {"Authorization", jwtToken} });
         if (r.status_code == 200) {
             try {
                 auto j = json::parse(r.text, nullptr, false);
@@ -427,7 +385,7 @@ void FetchUserStatsAsync(std::string userId) {
 }
 
 void FetchServerStatsAsync(std::string serverId) {
-    if (isFetchingServerStats || jwtToken.empty()) return;
+    if (isFetchingServerStats) return;
     isFetchingServerStats = true;
 
     {
@@ -438,7 +396,7 @@ void FetchServerStatsAsync(std::string serverId) {
 
     std::thread([serverId]() {
         cpr::Response r = cpr::Get(cpr::Url{ API_BASE_URL + "/admin/servers/" + serverId + "/detailed_members" },
-            cpr::Header{ {"Authorization", "Bearer " + jwtToken} });
+            cpr::Header{ {"Authorization", jwtToken} });
         if (r.status_code == 200) {
             try {
                 auto j = json::parse(r.text, nullptr, false);
@@ -561,7 +519,6 @@ void DrawServerControlPanel() {
     ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Canli CMD Ekran Loglari (Gelen Veriler)");
     ImGui::Separator();
 
-    // YENI IMGUI CHILD FLAGLARI EKLENDI
     ImGui::BeginChild("HTTPLogRegion", ImVec2(0, 0), ImGuiChildFlags_Border, ImGuiWindowFlags_HorizontalScrollbar);
     {
         std::lock_guard<std::mutex> lock(httpLogMutex);
@@ -589,7 +546,6 @@ void DrawConsole() {
     ImGui::SetNextWindowSize(ImVec2(450, 415), ImGuiCond_FirstUseEver);
     ImGui::Begin(">> SUPER ADMIN TERMINALI <<", &show_terminal);
 
-    // YENI IMGUI CHILD FLAGLARI EKLENDI
     ImGui::BeginChild("ScrollingRegion", ImVec2(0, -ImGui::GetFrameHeightWithSpacing()), ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar);
     for (const auto& log : consoleLog) {
         if (log.find("[HATA]") != std::string::npos) ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "%s", log.c_str());
@@ -854,7 +810,6 @@ void DrawServerStatsModal() {
             ImGui::Columns(2, "ServerColumns"); ImGui::SetColumnWidth(0, 300);
 
             ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Sunucu Uyeleri");
-            // YENI IMGUI CHILD FLAGLARI
             ImGui::BeginChild("ServerMembersRegion", ImVec2(0, 0), ImGuiChildFlags_Border);
             {
                 std::lock_guard<std::mutex> lock(statsMutex);
@@ -881,7 +836,6 @@ void DrawServerStatsModal() {
             ImGui::NextColumn();
 
             ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Sunucu Islem Loglari (Gozetim)");
-            // YENI IMGUI CHILD FLAGLARI
             ImGui::BeginChild("MessagesRegion", ImVec2(0, 0), ImGuiChildFlags_Border);
             {
                 std::lock_guard<std::mutex> lock(statsMutex);
@@ -951,6 +905,7 @@ int main() {
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 130");
 
+    consoleLog.push_back("[SISTEM] Super Admin oturumu otomatik olarak acildi (Bypass Aktif).");
     consoleLog.push_back("[SISTEM] Moduller yuklendi. Terminal hazir. Komutlari gormek icin 'help' yazin.");
 
     while (!glfwWindowShouldClose(window)) {
@@ -959,73 +914,28 @@ int main() {
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        // GİRİŞ EKRANI VEYA DASHBOARD MANTIĞI
-        if (currentState == AppState::LOGIN) {
-            ImGuiIO& io = ImGui::GetIO(); (void)io;
-            ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
-            ImGui::SetNextWindowSize(io.DisplaySize);
-            ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+        // ARTIK DOĞRUDAN DASHBOARD (KONTROL PANELİ) ÇİZİLİYOR
+        DrawMainMenuBar();
 
-            ImGui::Begin("Giris", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize);
-
-            ImVec2 windowSize = ImGui::GetWindowSize();
-            ImGui::SetCursorPos(ImVec2(windowSize.x * 0.5f - 175.0f, windowSize.y * 0.5f - 120.0f));
-
-            // YENI IMGUI CHILD FLAGLARI
-            ImGui::BeginChild("LoginForm", ImVec2(350, 280), ImGuiChildFlags_Border | ImGuiChildFlags_AlwaysAutoResize);
-            ImGui::TextColored(ImVec4(0.26f, 0.59f, 0.98f, 1.0f), "M Y S A A S A P P   S E C U R E");
-            ImGui::Separator();
-            ImGui::Spacing();
-
-            ImGui::Text("E-Posta Adresi");
-            ImGui::InputText("##email", emailBuffer, IM_ARRAYSIZE(emailBuffer));
-
-            ImGui::Spacing();
-
-            ImGui::Text("Yonetici Sifresi");
-            ImGui::InputText("##password", passwordBuffer, IM_ARRAYSIZE(passwordBuffer), ImGuiInputTextFlags_Password);
-
-            ImGui::Spacing(); ImGui::Spacing();
-
-            if (ImGui::Button("Guvenli Giris Yap", ImVec2(-1, 35))) {
-                attemptLogin();
-            }
-
-            if (!loginErrorMessage.empty()) {
-                ImGui::Spacing();
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.3f, 0.3f, 1.0f));
-                ImGui::TextWrapped("%s", loginErrorMessage.c_str());
-                ImGui::PopStyleColor();
-            }
-
-            ImGui::EndChild();
-            ImGui::End();
-            ImGui::PopStyleVar();
+        double current_time = ImGui::GetTime();
+        if (current_time - last_update_time > 0.5) {
+            UpdateHardwareMetrics();
+            app_cpu_graph[time_offset] = app_cpu_usage;
+            app_ram_graph[time_offset] = app_ram_usage_mb;
+            db_size_graph[time_offset] = db_size_mb;
+            time_offset = (time_offset + 1) % 90;
+            last_update_time = current_time;
         }
-        else {
-            // GİRİŞ BAŞARILIYSA DASHBOARD ÇİZİLİR
-            DrawMainMenuBar();
 
-            double current_time = ImGui::GetTime();
-            if (current_time - last_update_time > 0.5) {
-                UpdateHardwareMetrics();
-                app_cpu_graph[time_offset] = app_cpu_usage;
-                app_ram_graph[time_offset] = app_ram_usage_mb;
-                db_size_graph[time_offset] = db_size_mb;
-                time_offset = (time_offset + 1) % 90;
-                last_update_time = current_time;
-            }
+        DrawServerControlPanel();
+        DrawDashboard();
+        DrawUserManagement();
+        DrawServerManagement();
+        DrawConsole();
 
-            DrawServerControlPanel();
-            DrawDashboard();
-            DrawUserManagement();
-            DrawServerManagement();
-            DrawConsole();
-
-            DrawBanListModal();
-            DrawUserStatsModal();
-            DrawServerStatsModal();
-        }
+        DrawBanListModal();
+        DrawUserStatsModal();
+        DrawServerStatsModal();
 
         ImGui::Render();
         int display_w, display_h;
