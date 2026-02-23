@@ -40,3 +40,8 @@ struct CardTag {
     std::string tag_name;
     std::string color;
 };
+struct BannedUserRecord {
+    std::string user_id;
+    std::string reason;
+    std::string date;
+};

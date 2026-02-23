@@ -3,17 +3,15 @@
 #include <crow/json.h>
 
 void AuthRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
+
     CROW_ROUTE(app, "/api/auth/login").methods(crow::HTTPMethod::POST)
         ([&db](const crow::request& req) {
         auto body = crow::json::load(req.body);
         if (!body) return crow::response(400, "Gecersiz JSON");
         if (!body.has("email") || !body.has("password")) return crow::response(400, "Eksik bilgi (email ve password gerekli)");
-
         std::string email = body["email"].s();
         std::string password = body["password"].s();
-
         std::string userId = db.authenticateUser(email, password);
-
         if (!userId.empty()) {
             db.updateLastSeen(userId);
 
@@ -81,4 +79,40 @@ void AuthRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
 
         return crow::response(500, "Google Auth Hatasi: Kullanici olusturulamadi veya bulunamadi.");
             });
+
+    // ==========================================================
+    // YENİ EKLENENLER: ŞİFRE SIFIRLAMA (Şifremi Unuttum)
+    // ==========================================================
+
+    // 3. ŞİFRE SIFIRLAMA KODU GÖNDER (FORGOT PASSWORD)
+    CROW_ROUTE(app, "/api/auth/forgot-password").methods("POST"_method)
+        ([&db](const crow::request& req) {
+        auto x = crow::json::load(req.body);
+        if (!x || !x.has("email")) return crow::response(400);
+
+        std::string resetToken = Security::generateId(10); // Rastgele bir kod üret
+
+        // Veritabanında bu mail varsa kodu kaydet
+        if (db.createPasswordResetToken(std::string(x["email"].s()), resetToken)) {
+            // Normalde burada SMTP ile mail atılır. Biz frontend'e simüle ediyoruz.
+            crow::json::wvalue res;
+            res["message"] = "Sifirlama kodu e-posta adresinize gonderildi.";
+            res["debug_token"] = resetToken; // Test edebilmeniz için tokeni dönüyoruz
+            return crow::response(200, res);
+        }
+        return crow::response(404, "Kullanici bulunamadi.");
+            });
+
+    // 4. YENİ ŞİFREYİ BELİRLE (RESET PASSWORD)
+    CROW_ROUTE(app, "/api/auth/reset-password").methods("POST"_method)
+        ([&db](const crow::request& req) {
+        auto x = crow::json::load(req.body);
+        if (!x || !x.has("token") || !x.has("new_password")) return crow::response(400);
+
+        if (db.resetPasswordWithToken(std::string(x["token"].s()), std::string(x["new_password"].s()))) {
+            return crow::response(200, "Sifreniz basariyla degistirildi. Lutfen yeni sifrenizle giris yapin.");
+        }
+        return crow::response(400, "Gecersiz veya suresi dolmus dogrulama kodu.");
+            });
+
 }

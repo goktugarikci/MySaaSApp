@@ -3,64 +3,158 @@
 
 void ServerRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
 
-    CROW_ROUTE(app, "/api/servers").methods("GET"_method)
+    // ==========================================================
+    // 1. TEMEL SUNUCU İŞLEMLERİ (GET, POST)
+    // ==========================================================
+    CROW_ROUTE(app, "/api/servers").methods("GET"_method, "POST"_method)
         ([&db](const crow::request& req) {
         if (!Security::checkAuth(req, db)) return crow::response(401);
         std::string userId = Security::getUserIdFromHeader(req);
-        std::vector<Server> servers = db.getUserServers(userId);
-        crow::json::wvalue res;
-        for (size_t i = 0; i < servers.size(); ++i) {
-            res[i]["id"] = servers[i].id;
-            res[i]["name"] = servers[i].name;
-            res[i]["owner_id"] = servers[i].owner_id;
-            res[i]["invite_code"] = servers[i].invite_code;
-            res[i]["icon_url"] = servers[i].icon_url;
-            res[i]["member_count"] = servers[i].member_count;
+
+        if (req.method == "GET"_method) {
+            auto servers = db.getUserServers(userId);
+            crow::json::wvalue res;
+            for (size_t i = 0; i < servers.size(); ++i) {
+                res[i]["id"] = servers[i].id;
+                res[i]["name"] = servers[i].name;
+                res[i]["owner_id"] = servers[i].owner_id;
+                res[i]["invite_code"] = servers[i].invite_code;
+                res[i]["icon_url"] = servers[i].icon_url;
+                res[i]["member_count"] = servers[i].member_count;
+            }
+            return crow::response(200, res);
         }
-        return crow::response(200, res);
+        else {
+            auto x = crow::json::load(req.body);
+            if (!x || !x.has("name")) return crow::response(400, "Sunucu adi eksik.");
+
+            std::string serverId = db.createServer(std::string(x["name"].s()), userId);
+            if (!serverId.empty()) {
+                crow::json::wvalue res;
+                res["server_id"] = serverId;
+                return crow::response(201, res);
+            }
+            return crow::response(500, "Sunucu olusturulamadi.");
+        }
             });
 
-    CROW_ROUTE(app, "/api/servers").methods("POST"_method)
-        ([&db](const crow::request& req) {
+    // SUNUCUYU DÜZENLE VEYA SİL (SADECE KURUCU)
+    CROW_ROUTE(app, "/api/servers/<string>").methods("PUT"_method, "DELETE"_method)
+        ([&db](const crow::request& req, std::string serverId) {
         if (!Security::checkAuth(req, db)) return crow::response(401);
-        auto x = crow::json::load(req.body);
-        if (!x || !x.has("name")) return crow::response(400);
+        std::string myId = Security::getUserIdFromHeader(req);
 
+        if (req.method == "PUT"_method) {
+            auto x = crow::json::load(req.body);
+            if (!x || !x.has("name")) return crow::response(400);
+
+            // DİKKAT: İsim çakışması (E0308) burada updateServerName ile çözüldü!
+            if (db.updateServerName(serverId, myId, std::string(x["name"].s()))) {
+                return crow::response(200, "Sunucu adi degistirildi.");
+            }
+        }
+        else {
+            if (db.deleteServer(serverId, myId)) return crow::response(200, "Sunucu tamamen silindi.");
+        }
+        return crow::response(403, "Bu islem icin sunucu sahibi olmalisiniz.");
+            });
+
+    // ==========================================================
+    // 2. KANAL YÖNETİMİ
+    // ==========================================================
+    CROW_ROUTE(app, "/api/servers/<string>/channels").methods("GET"_method, "POST"_method)
+        ([&db](const crow::request& req, std::string serverId) {
+        if (!Security::checkAuth(req, db)) return crow::response(401);
         std::string userId = Security::getUserIdFromHeader(req);
-        std::string serverId = db.createServer(std::string(x["name"].s()), userId);
-        if (!serverId.empty()) {
-            crow::json::wvalue res; res["server_id"] = serverId;
+
+        if (req.method == "GET"_method) {
+            auto channels = db.getServerChannels(serverId, userId);
+            crow::json::wvalue res;
+            for (size_t i = 0; i < channels.size(); ++i) res[i] = channels[i].toJson();
+            return crow::response(200, res);
+        }
+        else {
+            auto srv = db.getServerDetails(serverId);
+            if (!srv || srv->owner_id != userId) return crow::response(403, "Sadece sunucu sahibi kanal acabilir.");
+
+            auto x = crow::json::load(req.body);
+            if (!x || !x.has("name") || !x.has("type")) return crow::response(400);
+
+            bool isPrivate = x.has("is_private") ? x["is_private"].b() : false;
+
+            if (db.createChannel(serverId, std::string(x["name"].s()), x["type"].i(), isPrivate)) {
+                return crow::response(201, "Kanal olusturuldu.");
+            }
+            return crow::response(500);
+        }
+            });
+
+    CROW_ROUTE(app, "/api/channels/<string>").methods("PUT"_method, "DELETE"_method)
+        ([&db](const crow::request& req, std::string channelId) {
+        if (!Security::checkAuth(req, db)) return crow::response(401);
+
+        if (req.method == "PUT"_method) {
+            auto x = crow::json::load(req.body);
+            if (!x || !x.has("name")) return crow::response(400);
+            if (db.updateChannelName(channelId, std::string(x["name"].s()))) return crow::response(200, "Kanal adi guncellendi.");
+            return crow::response(500);
+        }
+        else {
+            if (db.deleteChannel(channelId)) return crow::response(200, "Kanal silindi.");
+            return crow::response(500);
+        }
+            });
+
+    // ==========================================================
+    // 3. DAVET (INVITE) SİSTEMİ
+    // ==========================================================
+    CROW_ROUTE(app, "/api/servers/<string>/invites").methods("POST"_method)
+        ([&db](const crow::request& req, std::string serverId) {
+        if (!Security::checkAuth(req, db)) return crow::response(401);
+
+        std::string inviterId = Security::getUserIdFromHeader(req);
+        std::string code = "INV-" + Security::generateId(8); // 8 Haneli Benzersiz Kod
+
+        if (db.createServerInvite(serverId, inviterId, code)) {
+            crow::json::wvalue res;
+            res["invite_code"] = code;
+            res["url"] = "https://mysaas.com/join/" + code;
+            res["message"] = "Davet kodu basariyla uretildi.";
             return crow::response(201, res);
         }
-        return crow::response(403);
+        return crow::response(500, "Davet linki olusturulamadi.");
             });
 
-    CROW_ROUTE(app, "/api/servers/<string>/channels").methods("POST"_method)
-        ([&db](const crow::request& req, std::string serverId) {
+    CROW_ROUTE(app, "/api/servers/join/<string>").methods("POST"_method)
+        ([&db](const crow::request& req, std::string inviteCode) {
         if (!Security::checkAuth(req, db)) return crow::response(401);
-        std::string userId = Security::getUserIdFromHeader(req);
-        auto srv = db.getServerDetails(serverId);
-        if (!srv || srv->owner_id != userId) return crow::response(403);
 
-        auto x = crow::json::load(req.body);
-        if (!x || !x.has("name") || !x.has("type")) return crow::response(400);
-
-        bool isPrivate = x.has("is_private") ? x["is_private"].b() : false;
-
-        if (db.createChannel(serverId, std::string(x["name"].s()), x["type"].i(), isPrivate)) {
-            return crow::response(201);
+        if (db.joinServerByInvite(Security::getUserIdFromHeader(req), inviteCode)) {
+            return crow::response(200, "Sunucuya basariyla katildiniz!");
         }
-        return crow::response(403);
+        return crow::response(400, "Gecersiz veya suresi dolmus davet kodu.");
             });
 
-    CROW_ROUTE(app, "/api/servers/<string>/channels").methods("GET"_method)
+    // ==========================================================
+    // 4. ÜYE YÖNETİMİ (AYRILMA VE ATILMA)
+    // ==========================================================
+    CROW_ROUTE(app, "/api/servers/<string>/leave").methods("DELETE"_method)
         ([&db](const crow::request& req, std::string serverId) {
         if (!Security::checkAuth(req, db)) return crow::response(401);
-        std::string userId = Security::getUserIdFromHeader(req);
 
-        std::vector<Channel> channels = db.getServerChannels(serverId, userId);
-        crow::json::wvalue res;
-        for (size_t i = 0; i < channels.size(); ++i) res[i] = channels[i].toJson();
-        return crow::response(200, res);
+        if (db.leaveServer(serverId, Security::getUserIdFromHeader(req))) {
+            return crow::response(200, "Sunucudan ayrildiniz.");
+        }
+        return crow::response(500);
+            });
+
+    CROW_ROUTE(app, "/api/servers/<string>/members/<string>").methods("DELETE"_method)
+        ([&db](const crow::request& req, std::string serverId, std::string targetId) {
+        if (!Security::checkAuth(req, db)) return crow::response(401);
+
+        if (db.kickMember(serverId, Security::getUserIdFromHeader(req), targetId)) {
+            return crow::response(200, "Uye sunucudan atildi.");
+        }
+        return crow::response(403, "Yetkisiz islem (Sadece kurucu silebilir).");
             });
 }

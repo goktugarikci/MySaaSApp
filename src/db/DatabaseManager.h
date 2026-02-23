@@ -14,7 +14,7 @@
 #include "../models/DTOs.h" // Sadece buradan çekilecek!
 
 class DatabaseManager {
-private:
+public:
     sqlite3* db;
     std::string db_path;
     bool executeQuery(const std::string& sql);
@@ -86,14 +86,14 @@ public:
     bool removeMemberFromChannel(std::string channelId, std::string userId);
 
     bool sendMessage(std::string channelId, std::string senderId, const std::string& content, const std::string& attachmentUrl = "");
-    bool updateMessage(std::string messageId, const std::string& newContent);
+    bool updateMessage(const std::string& messageId, const std::string& newContent);
     bool deleteMessage(std::string messageId);
     std::vector<Message> getChannelMessages(std::string channelId, int limit = 50);
     std::string getOrCreateDMChannel(std::string user1Id, std::string user2Id);
-    bool addMessageReaction(std::string messageId, std::string userId, std::string reaction);
-    bool removeMessageReaction(std::string messageId, std::string userId, std::string reaction);
-    bool addThreadReply(std::string messageId, std::string senderId, std::string content);
-    std::vector<Message> getThreadReplies(std::string messageId);
+    bool addMessageReaction(const std::string& messageId, const std::string& userId, const std::string& reaction);
+    bool removeMessageReaction(const std::string& messageId, const std::string& userId, const std::string& reaction);
+    bool addThreadReply(const std::string& messageId, const std::string& userId, const std::string& content);
+    std::vector<Message> getThreadReplies(const std::string& messageId);
 
     std::vector<KanbanList> getKanbanBoard(std::string channelId);
     bool createKanbanList(std::string boardChannelId, std::string title);
@@ -141,4 +141,26 @@ public:
     void processKanbanNotifications();
     std::vector<NotificationDTO> getUserNotifications(const std::string& userId);
     bool markNotificationAsRead(int notifId);
+    // ==========================================================
+    // YENİ EKLENENLER: ŞİFRE VE DAVET SİSTEMİ FONKSİYONLARI
+    // ==========================================================
+    bool createPasswordResetToken(const std::string& email, const std::string& token);
+    bool resetPasswordWithToken(const std::string& token, const std::string& newPassword);
+    bool updateChannelName(const std::string& channelId, const std::string& newName);
+    bool createServerInvite(const std::string& serverId, const std::string& inviterId, const std::string& code);
+    bool joinServerByInvite(const std::string& userId, const std::string& inviteCode);
+    std::vector<BannedUserRecord> getBannedUsers();
+
+    // --- YENİ EKLENEN SİSTEM YETENEKLERİ ---
+    bool deleteMessage(const std::string& msgId, const std::string& userId);
+    bool removeReaction(const std::string& msgId, const std::string& userId);
+    bool respondFriendRequest(const std::string& requesterId, const std::string& targetId, const std::string& status);
+    bool removeFriend(const std::string& userId, const std::string& friendId);
+    bool leaveServer(const std::string& serverId, const std::string& userId);
+    bool updateServer(const std::string& serverId, const std::string& ownerId, const std::string& newName);
+    bool deleteServer(const std::string& serverId, const std::string& ownerId);
+    bool kickMember(const std::string& serverId, const std::string& ownerId, const std::string& targetId);
+    bool updateServerName(const std::string& serverId, const std::string& ownerId, const std::string& newName);
+
+    sqlite3* getDb();
 };

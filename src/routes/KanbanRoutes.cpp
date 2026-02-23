@@ -7,7 +7,6 @@ void KanbanRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
     // KANBAN PANO VE LİSTE İŞLEMLERİ
     // ==========================================================
 
-    // Panoyu Getir (Tüm listeler ve kartlar dahil)
     CROW_ROUTE(app, "/api/boards/<string>")
         ([&db](const crow::request& req, std::string chId) {
         if (!Security::checkAuth(req, db)) return crow::response(401);
@@ -19,7 +18,6 @@ void KanbanRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(200, res);
             });
 
-    // Yeni Liste Ekle (Sütun)
     CROW_ROUTE(app, "/api/boards/<string>/lists").methods("POST"_method)
         ([&db](const crow::request& req, std::string chId) {
         if (!Security::checkAuth(req, db)) return crow::response(401);
@@ -30,7 +28,6 @@ void KanbanRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(500);
             });
 
-    // Liste Güncelle & Sil
     CROW_ROUTE(app, "/api/lists/<string>").methods("PUT"_method, "DELETE"_method)
         ([&db](const crow::request& req, std::string listId) {
         if (!Security::checkAuth(req, db)) return crow::response(401);
@@ -50,7 +47,6 @@ void KanbanRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
     // KART (GÖREV) İŞLEMLERİ
     // ==========================================================
 
-    // Yeni Kart Oluştur (Atama ve Tarih ile)
     CROW_ROUTE(app, "/api/lists/<string>/cards").methods("POST"_method)
         ([&db](const crow::request& req, std::string listId) {
         if (!Security::checkAuth(req, db)) return crow::response(401);
@@ -67,7 +63,6 @@ void KanbanRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(500);
             });
 
-    // Kart Güncelle & Sil
     CROW_ROUTE(app, "/api/cards/<string>").methods("PUT"_method, "DELETE"_method)
         ([&db](const crow::request& req, std::string cardId) {
         if (!Security::checkAuth(req, db)) return crow::response(401);
@@ -82,18 +77,17 @@ void KanbanRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(500);
             });
 
-    // Kartı Başka Listeye (Sütuna) Taşı
+    // SÜRÜKLE BIRAK (MOVE) - SADECE BİR TANE VAR
     CROW_ROUTE(app, "/api/cards/<string>/move").methods("PUT"_method)
         ([&db](const crow::request& req, std::string cardId) {
         if (!Security::checkAuth(req, db)) return crow::response(401);
         auto x = crow::json::load(req.body);
         if (!x || !x.has("new_list_id") || !x.has("new_position")) return crow::response(400);
 
-        if (db.moveCard(cardId, std::string(x["new_list_id"].s()), x["new_position"].i())) return crow::response(200);
+        if (db.moveCard(cardId, std::string(x["new_list_id"].s()), x["new_position"].i())) return crow::response(200, "Kartin sirasi/listesi güncellendi.");
         return crow::response(500);
             });
 
-    // Karta Kişi Ata
     CROW_ROUTE(app, "/api/cards/<string>/assign").methods("PUT"_method)
         ([&db](const crow::request& req, std::string cardId) {
         if (!Security::checkAuth(req, db)) return crow::response(401);
@@ -109,7 +103,7 @@ void KanbanRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(500);
             });
 
-    // Kart Tamamlanma Durumunu Değiştir
+    // TAMAMLANMA (STATUS) - SADECE BİR TANE VAR
     CROW_ROUTE(app, "/api/cards/<string>/status").methods("PUT"_method)
         ([&db](const crow::request& req, std::string cardId) {
         if (!Security::checkAuth(req, db)) return crow::response(401);
@@ -190,36 +184,4 @@ void KanbanRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         if (db.removeCardTag(tagId)) return crow::response(200, "Etiket kaldirildi.");
         return crow::response(500);
             });
-    
-    // Kartı Başka Listeye (Sütuna) Taşı veya Aynı Sütunda Sırasını (Position) Değiştir
-    CROW_ROUTE(app, "/api/cards/<string>/move").methods("PUT"_method)
-        ([&db](const crow::request& req, std::string cardId) {
-        if (!Security::checkAuth(req, db)) return crow::response(401);
-        auto x = crow::json::load(req.body);
-
-        // Frontend, kartın bırakıldığı YENİ Listenin ID'sini ve YENİ sıra numarasını gönderir.
-        if (!x || !x.has("new_list_id") || !x.has("new_position")) return crow::response(400);
-
-        if (db.moveCard(cardId, std::string(x["new_list_id"].s()), x["new_position"].i())) {
-            return crow::response(200, "Kartin sirasi/listesi güncellendi.");
-        }
-        return crow::response(500);
-            });
-
-
-    // Kart Tamamlanma Durumunu Değiştir
-    CROW_ROUTE(app, "/api/cards/<string>/status").methods("PUT"_method)
-        ([&db](const crow::request& req, std::string cardId) {
-        if (!Security::checkAuth(req, db)) return crow::response(401);
-        auto x = crow::json::load(req.body);
-        if (!x || !x.has("is_completed")) return crow::response(400);
-
-        bool isCompleted = x["is_completed"].b(); // JSON'dan boolean (true/false) çekilir
-
-        if (db.updateCardCompletion(cardId, isCompleted)) {
-            return crow::response(200, "Kart tamamlanma durumu degistirildi.");
-        }
-        return crow::response(500);
-            });
-
 }
