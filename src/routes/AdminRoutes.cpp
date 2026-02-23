@@ -146,5 +146,24 @@ void AdminRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         }
         return crow::response(200, res);
             });
+    // 7. SISTEM LOGLARINI (AUDIT TRAIL) GETIR
+    CROW_ROUTE(app, "/api/admin/logs").methods("GET"_method)
+        ([&db](const crow::request& req) {
+        if (!Security::checkAuth(req, db, true)) return crow::response(403);
+
+        // FONKSİYON İSMİ BURADA DA DEĞİŞTİRİLDİ:
+        auto logs = db.getAuditLogs(300);
+
+        crow::json::wvalue res;
+        for (size_t i = 0; i < logs.size(); ++i) {
+            res[i]["id"] = logs[i].id;
+            res[i]["user_id"] = logs[i].user_id;
+            res[i]["action"] = logs[i].action_type;
+            res[i]["target"] = logs[i].target_id;
+            res[i]["details"] = logs[i].details;
+            res[i]["date"] = logs[i].created_at;
+        }
+        return crow::response(200, res);
+            });
 
 }
