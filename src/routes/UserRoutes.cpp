@@ -39,11 +39,14 @@ void UserRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(500);
             });
 
-    CROW_ROUTE(app, "/api/users/search").methods(crow::HTTPMethod::GET)
+    CROW_ROUTE(app, "/api/users/search").methods("GET"_method)
         ([&db](const crow::request& req) {
         if (!Security::checkAuth(req, db)) return crow::response(401);
+
         char* qParam = req.url_params.get("q");
-        std::string query = qParam ? qParam : "";
+        if (!qParam) return crow::response(400, "Arama terimi (q) eksik.");
+
+        std::string query(qParam);
         if (query.length() < 3) return crow::response(400, "Arama terimi en az 3 karakter olmalidir.");
 
         auto users = db.searchUsers(query);
@@ -55,14 +58,14 @@ void UserRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
     // ==========================================================
     // 2. KULLANICI DURUMU & PING (AKTİFLİK)
     // ==========================================================
-    CROW_ROUTE(app, "/api/user/ping").methods(crow::HTTPMethod::POST)
+    CROW_ROUTE(app, "/api/user/ping").methods("POST"_method)
         ([&db](const crow::request& req) {
         if (!Security::checkAuth(req, db)) return crow::response(401);
         if (db.updateLastSeen(Security::getUserIdFromHeader(req))) return crow::response(200);
         return crow::response(500);
             });
 
-    CROW_ROUTE(app, "/api/user/status").methods(crow::HTTPMethod::POST)
+    CROW_ROUTE(app, "/api/user/status").methods("POST"_method)
         ([&db](const crow::request& req) {
         if (!Security::checkAuth(req, db)) return crow::response(401);
         auto body = crow::json::load(req.body);
@@ -72,9 +75,9 @@ void UserRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
             });
 
     // ==========================================================
-    // 3. ARKADAŞLIK İŞLEMLERİ
+    // 3. ARKADAŞLIK İŞLEMLERİ (OPTİMİZE EDİLDİ VE ÇAKIŞMA TEMİZLENDİ)
     // ==========================================================
-    CROW_ROUTE(app, "/api/friends")
+    CROW_ROUTE(app, "/api/friends").methods("GET"_method)
         ([&db](const crow::request& req) {
         if (!Security::checkAuth(req, db)) return crow::response(401);
         auto friends = db.getFriendsList(Security::getUserIdFromHeader(req));
@@ -83,7 +86,7 @@ void UserRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(200, res);
             });
 
-    CROW_ROUTE(app, "/api/friends/requests")
+    CROW_ROUTE(app, "/api/friends/requests").methods("GET"_method)
         ([&db](const crow::request& req) {
         if (!Security::checkAuth(req, db)) return crow::response(401);
         auto reqs = db.getPendingRequests(Security::getUserIdFromHeader(req));
@@ -97,21 +100,34 @@ void UserRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         if (!Security::checkAuth(req, db)) return crow::response(401);
         auto x = crow::json::load(req.body);
         if (!x || !x.has("target_id")) return crow::response(400);
-        if (db.sendFriendRequest(Security::getUserIdFromHeader(req), std::string(x["target_id"].s()))) return crow::response(200, "Istek gonderildi.");
+
+        std::string myId = Security::getUserIdFromHeader(req);
+        std::string targetId = std::string(x["target_id"].s());
+
+        if (myId == targetId) return crow::response(400, "Kendinize arkadaslik istegi gonderemezsiniz.");
+
+        if (db.sendFriendRequest(myId, targetId)) return crow::response(200, "Istek gonderildi.");
         return crow::response(400, "Istek gonderilemedi.");
             });
 
-    CROW_ROUTE(app, "/api/friends/request/<string>").methods("PUT"_method)
+    // ARKADAŞLIK İSTEĞİNİ YANITLA (KABUL/RED) -> Tekil fonksiyon kullanıldı
+    CROW_ROUTE(app, "/api/friends/requests/<string>").methods("PUT"_method)
         ([&db](const crow::request& req, std::string requesterId) {
         if (!Security::checkAuth(req, db)) return crow::response(401);
-        if (db.acceptFriendRequest(requesterId, Security::getUserIdFromHeader(req))) return crow::response(200, "Istek kabul edildi.");
-        return crow::response(400);
+        auto x = crow::json::load(req.body);
+        if (!x || !x.has("status")) return crow::response(400); // status: "accepted" veya "rejected"
+
+        if (db.respondFriendRequest(requesterId, Security::getUserIdFromHeader(req), std::string(x["status"].s()))) {
+            return crow::response(200, "Istek yanitlandi.");
+        }
+        return crow::response(500);
             });
 
+    // ARKADAŞLIKTAN ÇIKAR
     CROW_ROUTE(app, "/api/friends/<string>").methods("DELETE"_method)
-        ([&db](const crow::request& req, std::string otherId) {
+        ([&db](const crow::request& req, std::string friendId) {
         if (!Security::checkAuth(req, db)) return crow::response(401);
-        if (db.rejectOrRemoveFriend(otherId, Security::getUserIdFromHeader(req))) return crow::response(200);
+        if (db.removeFriend(Security::getUserIdFromHeader(req), friendId)) return crow::response(200, "Arkadasliktan cikarildi.");
         return crow::response(500);
             });
 
@@ -134,7 +150,8 @@ void UserRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
             if (!x || !x.has("target_id")) return crow::response(400);
 
             std::string targetId = std::string(x["target_id"].s());
-            db.rejectOrRemoveFriend(targetId, myId);
+            db.rejectOrRemoveFriend(targetId, myId); // Arkadaşlıktan çıkar ve engelle
+
             if (db.blockUser(myId, targetId)) return crow::response(201, "Kullanici engellendi.");
             return crow::response(500);
         }
@@ -150,7 +167,7 @@ void UserRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
     // ==========================================================
     // 5. BİLDİRİMLER VE DAVETLER
     // ==========================================================
-    CROW_ROUTE(app, "/api/users/me/server-invites").methods(crow::HTTPMethod::GET)
+    CROW_ROUTE(app, "/api/users/me/server-invites").methods("GET"_method)
         ([&db](const crow::request& req) {
         if (!Security::checkAuth(req, db)) return crow::response(401);
         auto invites = db.getPendingServerInvites(Security::getUserIdFromHeader(req));
@@ -186,10 +203,8 @@ void UserRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
             });
 
     // ==========================================================
-    // 6. ÖZEL MESAJLAŞMA (DM) İŞLEMLERİ (YENİ)
+    // 6. ÖZEL MESAJLAŞMA (DM) İŞLEMLERİ
     // ==========================================================
-
-    // DM Kanalı Başlatma veya ID'sini Çekme
     CROW_ROUTE(app, "/api/users/dm").methods("POST"_method)
         ([&db](const crow::request& req) {
         if (!Security::checkAuth(req, db)) return crow::response(401);
@@ -210,7 +225,6 @@ void UserRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(500, "DM kanali olusturulamadi.");
             });
 
-    // DM Geçmişini Silme (Kanalı Kapatma)
     CROW_ROUTE(app, "/api/users/dm/<string>").methods("DELETE"_method)
         ([&db](const crow::request& req, std::string channelId) {
         if (!Security::checkAuth(req, db)) return crow::response(401);
