@@ -5,17 +5,35 @@
 
 #define SAFE_TEXT(col) (reinterpret_cast<const char*>(sqlite3_column_text(stmt, col)) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, col)) : "")
 
-DatabaseManager::DatabaseManager(const std::string& path) : db_path(path), db(nullptr) {}
+DatabaseManager::DatabaseManager(const std::string& path) : db_path(path), db(nullptr), logDb(nullptr) {}
 DatabaseManager::~DatabaseManager() { close(); }
 
 bool DatabaseManager::open() {
+    // 1. ANA VERİTABANINI AÇ
     int rc = sqlite3_open(db_path.c_str(), &db);
     if (rc) return false;
     executeQuery("PRAGMA foreign_keys = ON;");
+
+    // 2. YENİ: BAĞIMSIZ LOG VERİTABANINI AÇ
+    int rcLog = sqlite3_open("mysaas_logs.db", &logDb);
+    if (rcLog == SQLITE_OK) {
+        // Log tablosunu burada oluşturuyoruz
+        char* errMsg = nullptr;
+        sqlite3_exec(logDb, "CREATE TABLE IF NOT EXISTS audit_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, action_type TEXT, target_id TEXT, details TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);", 0, 0, &errMsg);
+        if (errMsg) sqlite3_free(errMsg);
+    }
+
     return true;
 }
 
-void DatabaseManager::close() { if (db) { sqlite3_close(db); db = nullptr; } }
+void DatabaseManager::close() {
+    if (db) { sqlite3_close(db); db = nullptr; }
+    if (logDb) { sqlite3_close(logDb); logDb = nullptr; } // Uygulama kapanırken log DB'yi de kapat
+}
+
+sqlite3* DatabaseManager::getDb() {
+    return db;
+}
 
 bool DatabaseManager::executeQuery(const std::string& sql) {
     char* zErrMsg = 0;
@@ -717,6 +735,60 @@ bool DatabaseManager::updateServerName(const std::string& serverId, const std::s
     return executeQuery("UPDATE servers SET name = '" + newName + "' WHERE id = '" + serverId + "' AND owner_id = '" + ownerId + "';");
 }
 
-sqlite3* DatabaseManager::getDb() {
-    return db;
+
+
+// ==========================================================
+// BAĞIMSIZ LOG MOTORU (KÖPRÜ FONKSİYONLAR)
+// ==========================================================
+
+bool DatabaseManager::executeLogQuery(const std::string& query) {
+    std::lock_guard<std::mutex> lock(logMutex); // Kilit mekanizması
+    if (!logDb) return false; // DB açılmadıysa çökmesini engelle
+
+    char* errMsg = nullptr;
+    if (sqlite3_exec(logDb, query.c_str(), 0, 0, &errMsg) != SQLITE_OK) {
+        std::cerr << "Log DB Hatasi: " << errMsg << std::endl;
+        sqlite3_free(errMsg);
+        return false;
+    }
+    return true;
+}
+
+bool DatabaseManager::logAction(const std::string& userId, const std::string& actionType, const std::string& targetId, const std::string& details) {
+    std::string safeDetails = details;
+    size_t pos = 0;
+    while ((pos = safeDetails.find("'", pos)) != std::string::npos) {
+        safeDetails.replace(pos, 1, "''");
+        pos += 2;
+    }
+
+    std::string sql = "INSERT INTO audit_logs (user_id, action_type, target_id, details) VALUES ('" +
+        userId + "', '" + actionType + "', '" + targetId + "', '" + safeDetails + "');";
+
+    return executeLogQuery(sql); // Ana DB yerine Log DB'ye yaz!
+}
+
+std::vector<DatabaseManager::AuditLogRecord> DatabaseManager::getAuditLogs(int limit) {
+    std::vector<AuditLogRecord> logs;
+    if (!logDb) return logs;
+
+    sqlite3_stmt* stmt;
+    std::string sql = "SELECT id, user_id, action_type, target_id, details, created_at FROM audit_logs ORDER BY id DESC LIMIT " + std::to_string(limit) + ";";
+
+    std::lock_guard<std::mutex> lock(logMutex);
+
+    if (sqlite3_prepare_v2(logDb, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            AuditLogRecord rec;
+            rec.id = std::to_string(sqlite3_column_int(stmt, 0));
+            if (sqlite3_column_text(stmt, 1)) rec.user_id = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+            if (sqlite3_column_text(stmt, 2)) rec.action_type = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+            if (sqlite3_column_text(stmt, 3)) rec.target_id = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
+            if (sqlite3_column_text(stmt, 4)) rec.details = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
+            if (sqlite3_column_text(stmt, 5)) rec.created_at = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5));
+            logs.push_back(rec);
+        }
+        sqlite3_finalize(stmt);
+    }
+    return logs;
 }

@@ -4,7 +4,6 @@
 #include <sqlite3.h>
 #include <optional>
 
-// MODELLERİ DAHİL ET
 #include "../models/User.h"
 #include "../models/Server.h"
 #include "../models/Message.h"
@@ -15,13 +14,18 @@
 
 class DatabaseManager {
 public:
-    sqlite3* db;
-    std::string db_path;
-    bool executeQuery(const std::string& sql);
+    sqlite3* db; //Main DB
+    sqlite3* logDb;// Log Dosyası 
+    std::string db_path; //Main DB
+    std::mutex logMutex;// Log Dosyası 
+    bool executeQuery(const std::string& sql); //Main DB
+    bool executeLogQuery(const std::string& query); // Log Dosyası Köprüsü
 
 public:
     DatabaseManager(const std::string& path);
     ~DatabaseManager();
+
+    sqlite3* getDb();
 
     bool open();
     void close();
@@ -162,5 +166,17 @@ public:
     bool kickMember(const std::string& serverId, const std::string& ownerId, const std::string& targetId);
     bool updateServerName(const std::string& serverId, const std::string& ownerId, const std::string& newName);
 
-    sqlite3* getDb();
+    // ==========================================================
+       // YENİ EKLENECEK: SISTEM LOGLARI (AUDIT TRAIL) YAPISI
+       // ==========================================================
+    struct AuditLogRecord { // İSİM DEĞİŞTİ
+        std::string id, user_id, action_type, target_id, details, created_at;
+    };
+
+    bool logAction(const std::string& userId, const std::string& actionType, const std::string& targetId, const std::string& details);
+
+    // İSİM DEĞİŞTİ (Eski getSystemLogs ile çakışmaması için):
+    std::vector<AuditLogRecord> getAuditLogs(int limit = 200);
+
+
 };
