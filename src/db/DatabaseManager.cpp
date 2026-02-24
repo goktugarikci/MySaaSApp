@@ -732,7 +732,16 @@ bool DatabaseManager::kickMember(const std::string& serverId, const std::string&
 }
 
 bool DatabaseManager::updateServerName(const std::string& serverId, const std::string& ownerId, const std::string& newName) {
-    return executeQuery("UPDATE servers SET name = '" + newName + "' WHERE id = '" + serverId + "' AND owner_id = '" + ownerId + "';");
+    // Sadece sunucu sahibinin ismi değiştirmesine izin veren SQL sorgusu
+    std::string safeName = newName;
+    size_t pos = 0;
+    while ((pos = safeName.find("'", pos)) != std::string::npos) {
+        safeName.replace(pos, 1, "''");
+        pos += 2;
+    }
+
+    std::string sql = "UPDATE Servers SET Name = '" + safeName + "' WHERE ID = '" + serverId + "' AND OwnerID = '" + ownerId + "';";
+    return executeQuery(sql);
 }
 
 // ==========================================================

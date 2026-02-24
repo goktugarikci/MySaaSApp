@@ -187,35 +187,6 @@ void ServerRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(403, "Yetkisiz islem (Sadece kurucu silebilir).");
             });
 
-    // ==========================================================
-    // 5. ROL YÖNETİMİ - V2.0
-    // ==========================================================
-    CROW_ROUTE(app, "/api/servers/<string>/roles").methods("POST"_method)
-        ([&db](const crow::request& req, std::string serverId) {
-        if (!Security::checkAuth(req, db)) return crow::response(401);
-        auto x = crow::json::load(req.body);
-        if (!x || !x.has("name")) return crow::response(400);
 
-        std::string roleId = db.createServerRole(serverId, std::string(x["name"].s()), x.has("color") ? std::string(x["color"].s()) : "#000000", x.has("permissions") ? x["permissions"].i() : 0);
-        if (!roleId.empty()) {
-            db.logAction(Security::getUserIdFromHeader(req), "CREATE_ROLE", roleId, "Yeni sunucu rolu olusturuldu.");
-            crow::json::wvalue res; res["role_id"] = roleId;
-            return crow::response(201, res);
-        }
-        return crow::response(500);
-            });
-
-    CROW_ROUTE(app, "/api/servers/<string>/members/<string>/roles").methods("POST"_method)
-        ([&db](const crow::request& req, std::string serverId, std::string userId) {
-        if (!Security::checkAuth(req, db)) return crow::response(401);
-        auto x = crow::json::load(req.body);
-        if (!x || !x.has("role_id")) return crow::response(400);
-
-        if (db.assignRoleToUser(serverId, userId, std::string(x["role_id"].s()))) {
-            db.logAction(Security::getUserIdFromHeader(req), "ASSIGN_ROLE", userId, "Uyeye rol atandi.");
-            return crow::response(200, "Rol atandi.");
-        }
-        return crow::response(500);
-            });
 
 }

@@ -48,7 +48,6 @@ public:
     bool loginUser(const std::string& email, const std::string& rawPassword);
 
     std::string createServer(const std::string& name, std::string ownerId);
-    bool updateServer(std::string serverId, const std::string& name, const std::string& iconUrl);
     bool deleteServer(std::string serverId);
     std::vector<Server> getUserServers(std::string userId);
     std::optional<Server> getServerDetails(std::string serverId);
@@ -161,7 +160,6 @@ public:
     bool respondFriendRequest(const std::string& requesterId, const std::string& targetId, const std::string& status);
     bool removeFriend(const std::string& userId, const std::string& friendId);
     bool leaveServer(const std::string& serverId, const std::string& userId);
-    bool updateServer(const std::string& serverId, const std::string& ownerId, const std::string& newName);
     bool deleteServer(const std::string& serverId, const std::string& ownerId);
     bool kickMember(const std::string& serverId, const std::string& ownerId, const std::string& targetId);
     bool updateServerName(const std::string& serverId, const std::string& ownerId, const std::string& newName);
