@@ -110,11 +110,16 @@ void AdminRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         auto x = crow::json::load(req.body);
         if (!x || !x.has("user_id")) return crow::response(400);
 
+        std::string targetId = std::string(x["user_id"].s());
+        std::string adminId = Security::getUserIdFromHeader(req);
+
         db.executeQuery("CREATE TABLE IF NOT EXISTS banned_users (user_id TEXT PRIMARY KEY, reason TEXT, date DATETIME DEFAULT CURRENT_TIMESTAMP);");
-        std::string sql = "INSERT OR REPLACE INTO banned_users (user_id, reason) VALUES ('" + std::string(x["user_id"].s()) + "', 'Sistem Yoneticisi Yasaklamasi');";
+        std::string sql = "INSERT OR REPLACE INTO banned_users (user_id, reason) VALUES ('" + targetId + "', 'Sistem Yoneticisi Yasaklamasi');";
 
         if (db.executeQuery(sql)) {
-            db.updateUserStatus(std::string(x["user_id"].s()), "Banned");
+            db.updateUserStatus(targetId, "Banned");
+            // BAN LOGU
+            db.logAction(adminId, "BAN_USER", targetId, "Sistem yoneticisi bir kullaniciyi yasakladi.");
             return crow::response(200, "Kullanici yasaklandi.");
         }
         return crow::response(500);
@@ -127,8 +132,14 @@ void AdminRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         auto x = crow::json::load(req.body);
         if (!x || !x.has("user_id")) return crow::response(400);
 
-        db.executeQuery("DELETE FROM banned_users WHERE user_id = '" + std::string(x["user_id"].s()) + "';");
-        db.updateUserStatus(std::string(x["user_id"].s()), "Offline");
+        std::string targetId = std::string(x["user_id"].s());
+        std::string adminId = Security::getUserIdFromHeader(req);
+
+        db.executeQuery("DELETE FROM banned_users WHERE user_id = '" + targetId + "';");
+        db.updateUserStatus(targetId, "Offline");
+
+        // UNBAN LOGU
+        db.logAction(adminId, "UNBAN_USER", targetId, "Sistem yoneticisi kullanici yasagini kaldirildi.");
         return crow::response(200, "Yasak kaldirildi.");
             });
 

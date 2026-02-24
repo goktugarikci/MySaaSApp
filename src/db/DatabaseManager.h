@@ -166,6 +166,27 @@ public:
     bool kickMember(const std::string& serverId, const std::string& ownerId, const std::string& targetId);
     bool updateServerName(const std::string& serverId, const std::string& ownerId, const std::string& newName);
 
+
+    // ==========================================================
+    // V2.0 YENİ ÖZELLİKLER (ARAMA, ROL, KANBAN+, AYARLAR)
+    // ==========================================================
+
+    // 1. MESAJ ARAMA & PINLEME
+    std::vector<Message> searchMessages(const std::string& channelId, const std::string& query);
+    bool toggleMessagePin(const std::string& messageId, bool isPinned);
+    std::vector<Message> getPinnedMessages(const std::string& channelId);
+
+    // 2. ROL YÖNETİMİ
+    std::string createServerRole(const std::string& serverId, const std::string& name, const std::string& color, int permissions);
+    bool assignRoleToUser(const std::string& serverId, const std::string& userId, const std::string& roleId);
+
+    // 3. KANBAN GELİŞTİRMELERİ (DEADLINE & ETİKET)
+    bool setCardDeadline(const std::string& cardId, const std::string& date);
+    bool addCardLabel(const std::string& cardId, const std::string& text, const std::string& color);
+
+    // 4. KULLANICI AYARLARI
+    bool updateUserSettings(const std::string& userId, const std::string& theme, bool emailNotifs);
+
     // ==========================================================
        // YENİ EKLENECEK: SISTEM LOGLARI (AUDIT TRAIL) YAPISI
        // ==========================================================

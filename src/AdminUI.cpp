@@ -187,7 +187,14 @@ EndpointDef predefined_endpoints[] = {
     {"GET", "/api/admin/reports", "Aktif Kullanici Sikayetlerini Listele", ""},
     {"POST", "/api/reports", "Baskasini Sikayet Et", "{\n  \"content_id\": \"HEDEF_ID\",\n  \"type\": \"USER\",\n  \"reason\": \"Kufur/Hakaret\"\n}"},
     {"GET", "/api/admin/banlist", "Banlanmis Kullanici Listesi", ""},
-    {"POST", "/api/payments/checkout", "Yeni Abonelik / Odeme Baslat", "{\n  \"amount\": 99.99,\n  \"currency\": \"TRY\"\n}"}
+    {"POST", "/api/payments/checkout", "Yeni Abonelik / Odeme Baslat", "{\n  \"amount\": 99.99,\n  \"currency\": \"TRY\"\n}"},
+    // --- 11. YENİ EKLENEN V2.0 ÖZELLİKLER ---
+    {"GET", "/api/channels/CHANNEL_ID/messages/search?q=aranan", "Mesajlarda Arama Yap", ""},
+    {"PUT", "/api/messages/MSG_ID/pin", "Mesaji Sabitle (Pin)", "{\n  \"is_pinned\": true\n}"},
+    {"POST", "/api/servers/SERVER_ID/roles", "Yeni Rol Olustur", "{\n  \"name\": \"Moderator\",\n  \"color\": \"#FF0000\",\n  \"permissions\": 1024\n}"},
+    {"POST", "/api/servers/SERVER_ID/members/USER_ID/roles", "Uyeye Rol Ata", "{\n  \"role_id\": \"ROLE_ID\"\n}"},
+    {"PUT", "/api/cards/CARD_ID/deadline", "Goreve Bitis Tarihi Ekle", "{\n  \"date\": \"2026-12-31\"\n}"},
+    {"POST", "/api/cards/CARD_ID/labels", "Goreve Etiket Ekle", "{\n  \"text\": \"ACIL\",\n  \"color\": \"#FF5555\"\n}"},
 };
 
 // =============================================================

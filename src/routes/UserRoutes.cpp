@@ -225,11 +225,17 @@ void UserRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(500, "DM kanali olusturulamadi.");
             });
 
+    // DM Geçmişini Silme (Kanalı Kapatma)
     CROW_ROUTE(app, "/api/users/dm/<string>").methods("DELETE"_method)
         ([&db](const crow::request& req, std::string channelId) {
         if (!Security::checkAuth(req, db)) return crow::response(401);
-        // Veritabanı CASCADE kuralı sayesinde kanal silindiğinde tüm mesajlar da otomatik silinir.
-        if (db.deleteChannel(channelId)) return crow::response(200, "DM gecmisi temizlendi.");
+        std::string myId = Security::getUserIdFromHeader(req);
+
+        if (db.deleteChannel(channelId)) {
+            // BİREYSEL SOHBET SİLME LOGU
+            db.logAction(myId, "DELETE_DM_HISTORY", channelId, "Kullanici ozel mesaj (DM) gecmisini sildi.");
+            return crow::response(200, "DM gecmisi temizlendi.");
+        }
         return crow::response(500);
             });
 }

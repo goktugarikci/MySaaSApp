@@ -184,4 +184,32 @@ void KanbanRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         if (db.removeCardTag(tagId)) return crow::response(200, "Etiket kaldirildi.");
         return crow::response(500);
             });
+
+    // ==========================================================
+    // 4. KANBAN EKSTRALAR - V2.0
+    // ==========================================================
+    CROW_ROUTE(app, "/api/cards/<string>/deadline").methods("PUT"_method)
+        ([&db](const crow::request& req, std::string cardId) {
+        if (!Security::checkAuth(req, db)) return crow::response(401);
+        auto x = crow::json::load(req.body);
+        if (!x || !x.has("date")) return crow::response(400);
+
+        if (db.setCardDeadline(cardId, std::string(x["date"].s()))) {
+            db.logAction(Security::getUserIdFromHeader(req), "SET_DEADLINE", cardId, "Goreve bitis tarihi eklendi.");
+            return crow::response(200);
+        }
+        return crow::response(500);
+            });
+
+    CROW_ROUTE(app, "/api/cards/<string>/labels").methods("POST"_method)
+        ([&db](const crow::request& req, std::string cardId) {
+        if (!Security::checkAuth(req, db)) return crow::response(401);
+        auto x = crow::json::load(req.body);
+
+        if (db.addCardLabel(cardId, std::string(x["text"].s()), std::string(x["color"].s()))) {
+            return crow::response(201, "Etiket eklendi.");
+        }
+        return crow::response(500);
+            });
+
 }
