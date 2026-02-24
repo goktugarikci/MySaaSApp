@@ -27,7 +27,7 @@ add_executable(MySaaSApp
     src/routes/KanbanRoutes.cpp
     src/routes/WsRoutes.cpp
     src/routes/AdminRoutes.cpp
-    src/routes/PaymentRoutes.cpp "src/routes/UploadRoutes.cpp" "src/routes/RoleRoutes.h.cpp" "src/routes/ReportRoutes..cpp")
+    src/routes/PaymentRoutes.cpp "src/routes/UploadRoutes.cpp" "src/routes/RoleRoutes.cpp" "src/routes/ReportRoutes..cpp")
 
 target_link_libraries(MySaaSApp PRIVATE 
     Crow::Crow 

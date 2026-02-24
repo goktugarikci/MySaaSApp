@@ -4,7 +4,7 @@
 void MessageRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
 
     // ==========================================================
-    // 1. KANAL MESAJLARINI GETİR
+    // 1. KANAL / DM MESAJLARINI GETİR (Okuma işlemi çok tekrarlandığı için loglanmaz)
     // ==========================================================
     CROW_ROUTE(app, "/api/channels/<string>/messages").methods("GET"_method)
         ([&db](const crow::request& req, std::string channelId) {
@@ -19,7 +19,7 @@ void MessageRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
             });
 
     // ==========================================================
-    // 2. KANALA MESAJ GÖNDER (EK DOSYA DESTEKLİ)
+    // 2. KANALA VEYA DM'E MESAJ GÖNDER VE LOGLA
     // ==========================================================
     CROW_ROUTE(app, "/api/channels/<string>/messages").methods("POST"_method)
         ([&db](const crow::request& req, std::string channelId) {
@@ -31,13 +31,17 @@ void MessageRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         std::string userId = Security::getUserIdFromHeader(req);
 
         if (db.sendMessage(channelId, userId, std::string(x["content"].s()), attachmentUrl)) {
+
+            // LOG: Yeni Mesaj Gönderimi
+            db.logAction(userId, "SEND_MESSAGE", channelId, "Kullanici bir kanala veya DM'e yeni mesaj gonderdi.");
+
             return crow::response(201, "Mesaj gonderildi.");
         }
         return crow::response(500);
             });
 
     // ==========================================================
-    // 3. MESAJI DÜZENLE
+    // 3. MESAJI DÜZENLE VE LOGLA (SUNUCU VEYA DM FARK ETMEZ)
     // ==========================================================
     CROW_ROUTE(app, "/api/messages/<string>").methods("PUT"_method)
         ([&db](const crow::request& req, std::string messageId) {
@@ -45,21 +49,32 @@ void MessageRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         auto x = crow::json::load(req.body);
         if (!x || !x.has("content")) return crow::response(400);
 
+        std::string userId = Security::getUserIdFromHeader(req);
+
         if (db.updateMessage(messageId, std::string(x["content"].s()))) {
+
+            // LOG: Mesaj Düzenleme
+            db.logAction(userId, "EDIT_MESSAGE", messageId, "Kullanici kendi mesajinin icerigini duzenledi.");
+
             return crow::response(200, "Mesaj guncellendi.");
         }
         return crow::response(500);
             });
 
     // ==========================================================
-    // 4. MESAJI SİL (ÇATIŞMA ÇÖZÜLDÜ - SADECE GÜVENLİ OLAN KALDI)
+    // 4. MESAJI SİL VE LOGLA
     // ==========================================================
     CROW_ROUTE(app, "/api/messages/<string>").methods("DELETE"_method)
         ([&db](const crow::request& req, std::string msgId) {
         if (!Security::checkAuth(req, db)) return crow::response(401);
+        std::string userId = Security::getUserIdFromHeader(req);
 
         // Sadece yetkili kişi (mesajın sahibi) silebilir
-        if (db.deleteMessage(msgId, Security::getUserIdFromHeader(req))) {
+        if (db.deleteMessage(msgId, userId)) {
+
+            // LOG: Mesaj Silme
+            db.logAction(userId, "DELETE_MESSAGE", msgId, "Kullanici kendi mesajini sildi.");
+
             return crow::response(200, "Mesaj silindi.");
         }
         return crow::response(403, "Yetkisiz islem veya mesaj bulunamadi.");
@@ -82,7 +97,7 @@ void MessageRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
             });
 
     // ==========================================================
-    // 6. MESAJ TEPKİSİNİ GERİ AL (URL'DEN SPESİFİK EMOJİ SİLME)
+    // 6. MESAJ TEPKİSİNİ GERİ AL (SİL)
     // ==========================================================
     CROW_ROUTE(app, "/api/messages/<string>/reactions/<string>").methods("DELETE"_method)
         ([&db](const crow::request& req, std::string messageId, std::string reaction) {
@@ -115,7 +130,7 @@ void MessageRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
             });
 
     // ==========================================================
-    // 8. ALT MESAJ (THREAD) GÖNDER
+    // 8. ALT MESAJ (THREAD) GÖNDER VE LOGLA
     // ==========================================================
     CROW_ROUTE(app, "/api/messages/<string>/thread").methods("POST"_method)
         ([&db](const crow::request& req, std::string messageId) {
@@ -125,8 +140,44 @@ void MessageRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
 
         std::string userId = Security::getUserIdFromHeader(req);
         if (db.addThreadReply(messageId, userId, std::string(x["content"].s()))) {
+
+            // LOG: Thread (Alt Sohbet) Mesajı Gönderme
+            db.logAction(userId, "SEND_THREAD_REPLY", messageId, "Kullanici bir mesaja alt yanit (thread) gonderdi.");
+
             return crow::response(201, "Yanit eklendi.");
         }
         return crow::response(500);
             });
+
+    // ==========================================================
+    // 9. MESAJ ARAMA (SEARCH) - V2.0
+    // ==========================================================
+    CROW_ROUTE(app, "/api/channels/<string>/messages/search").methods("GET"_method)
+        ([&db](const crow::request& req, std::string channelId) {
+        if (!Security::checkAuth(req, db)) return crow::response(401);
+        char* q = req.url_params.get("q");
+        if (!q) return crow::response(400, "Arama metni eksik.");
+
+        auto msgs = db.searchMessages(channelId, std::string(q));
+        crow::json::wvalue res;
+        for (size_t i = 0; i < msgs.size(); ++i) res[i] = msgs[i].toJson();
+        return crow::response(200, res);
+            });
+
+    // ==========================================================
+    // 10. MESAJ PINLEME (SABİTLEME) - V2.0
+    // ==========================================================
+    CROW_ROUTE(app, "/api/messages/<string>/pin").methods("PUT"_method)
+        ([&db](const crow::request& req, std::string msgId) {
+        if (!Security::checkAuth(req, db)) return crow::response(401);
+        auto x = crow::json::load(req.body);
+        bool pin = x.has("is_pinned") ? x["is_pinned"].b() : true;
+
+        if (db.toggleMessagePin(msgId, pin)) {
+            db.logAction(Security::getUserIdFromHeader(req), pin ? "PIN_MESSAGE" : "UNPIN_MESSAGE", msgId, "Mesaj sabitlendi/kaldirildi.");
+            return crow::response(200, pin ? "Mesaj sabitlendi." : "Mesaj sabitten kaldirildi.");
+        }
+        return crow::response(500);
+            });
+
 }
