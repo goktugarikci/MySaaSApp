@@ -238,4 +238,54 @@ void UserRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         }
         return crow::response(500);
             });
+    // ==========================================================
+    // V3.0 - AŞAMA 2: KULLANICI NOTLARI VE KAYDEDİLENLER
+    // ==========================================================
+
+    // KULLANICIYA ÖZEL NOT EKLE/GETİR
+    CROW_ROUTE(app, "/api/users/<string>/notes").methods("GET"_method, "POST"_method)
+        ([&db](const crow::request& req, std::string targetId) {
+        if (!Security::checkAuth(req, db)) return crow::response(401);
+        std::string myId = Security::getUserIdFromHeader(req);
+
+        if (req.method == "GET"_method) {
+            std::string note = db.getUserNote(myId, targetId);
+            crow::json::wvalue res; res["note"] = note;
+            return crow::response(200, res);
+        }
+        else {
+            auto x = crow::json::load(req.body);
+            if (!x || !x.has("note")) return crow::response(400);
+
+            if (db.addUserNote(myId, targetId, std::string(x["note"].s()))) {
+                return crow::response(200, "Not basariyla kaydedildi.");
+            }
+            return crow::response(500);
+        }
+            });
+
+    // KAYDEDİLEN MESAJLARI (FAVORİLER) GETİR
+    CROW_ROUTE(app, "/api/users/me/saved-messages").methods("GET"_method)
+        ([&db](const crow::request& req) {
+        if (!Security::checkAuth(req, db)) return crow::response(401);
+        std::string myId = Security::getUserIdFromHeader(req);
+
+        auto msgs = db.getSavedMessages(myId);
+        crow::json::wvalue res;
+        for (size_t i = 0; i < msgs.size(); ++i) res[i] = msgs[i].toJson();
+        return crow::response(200, res);
+            });
+    // ABONELİK İPTALİ (Free Seviyesine Düşürme)
+    CROW_ROUTE(app, "/api/users/me/subscription").methods("DELETE"_method)
+        ([&db](const crow::request& req) {
+        if (!Security::checkAuth(req, db)) return crow::response(401);
+        std::string myId = Security::getUserIdFromHeader(req);
+
+        if (db.cancelSubscription(myId)) {
+            db.logAction(myId, "CANCEL_SUBSCRIPTION", myId, "Kullanici aktif aboneligini iptal etti.");
+            return crow::response(200, "Abonelik basariyla iptal edildi. Profiliniz ucretsiz (Free) seviyesine dusuruldu.");
+        }
+        return crow::response(500);
+            });
+
 }

@@ -187,6 +187,160 @@ void ServerRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(403, "Yetkisiz islem (Sadece kurucu silebilir).");
             });
 
+    // ROLÜ GÜNCELLE VE LOGLA
+    CROW_ROUTE(app, "/api/servers/<string>/roles/<string>").methods("PUT"_method)
+        ([&db](const crow::request& req, std::string serverId, std::string roleId) {
+        if (!Security::checkAuth(req, db)) return crow::response(401);
+        auto x = crow::json::load(req.body);
+        if (!x) return crow::response(400);
 
+        std::string name = x.has("name") ? std::string(x["name"].s()) : "";
+        std::string color = x.has("color") ? std::string(x["color"].s()) : "#000000";
+        int permissions = x.has("permissions") ? x["permissions"].i() : 0;
 
+        if (db.updateServerRole(roleId, name, color, permissions)) {
+            db.logAction(Security::getUserIdFromHeader(req), "UPDATE_ROLE", roleId, "Sunucu rolu guncellendi.");
+            return crow::response(200, "Rol guncellendi.");
+        }
+        return crow::response(500);
+            });
+
+    // ROLÜ SİL VE LOGLA
+    CROW_ROUTE(app, "/api/servers/<string>/roles/<string>").methods("DELETE"_method)
+        ([&db](const crow::request& req, std::string serverId, std::string roleId) {
+        if (!Security::checkAuth(req, db)) return crow::response(401);
+        if (db.deleteServerRole(roleId)) {
+            db.logAction(Security::getUserIdFromHeader(req), "DELETE_ROLE", roleId, "Sunucu rolu tamamen silindi.");
+            return crow::response(200, "Rol silindi.");
+        }
+        return crow::response(500);
+            });
+
+    // ÜYEDEN ROLÜ GERİ AL (KALDIR)
+    CROW_ROUTE(app, "/api/servers/<string>/members/<string>/roles/<string>").methods("DELETE"_method)
+        ([&db](const crow::request& req, std::string serverId, std::string userId, std::string roleId) {
+        if (!Security::checkAuth(req, db)) return crow::response(401);
+        if (db.removeRoleFromUser(serverId, userId, roleId)) {
+            db.logAction(Security::getUserIdFromHeader(req), "REMOVE_ROLE_FROM_USER", userId, "Uyeden rol geri alindi.");
+            return crow::response(200, "Rol uyeden alindi.");
+        }
+        return crow::response(500);
+            });
+    // ==========================================================
+    // V3.0 - AŞAMA 3: KATEGORİLER VE MUTE (TIMEOUT)
+    // ==========================================================
+
+    // KATEGORİ (KLASÖR) OLUŞTURMA VE LİSTELEME
+    CROW_ROUTE(app, "/api/servers/<string>/categories").methods("GET"_method, "POST"_method)
+        ([&db](const crow::request& req, std::string serverId) {
+        if (!Security::checkAuth(req, db)) return crow::response(401);
+        std::string myId = Security::getUserIdFromHeader(req);
+
+        if (req.method == "GET"_method) {
+            auto cats = db.getServerCategories(serverId);
+            crow::json::wvalue res;
+            for (size_t i = 0; i < cats.size(); ++i) {
+                res[i]["id"] = cats[i].id;
+                res[i]["name"] = cats[i].name;
+                res[i]["position"] = cats[i].position;
+            }
+            return crow::response(200, res);
+        }
+        else {
+            auto x = crow::json::load(req.body);
+            if (!x || !x.has("name")) return crow::response(400);
+
+            int pos = x.has("position") ? x["position"].i() : 0;
+            std::string catId = db.createServerCategory(serverId, std::string(x["name"].s()), pos);
+
+            if (!catId.empty()) {
+                db.logAction(myId, "CREATE_CATEGORY", catId, "Sunucuda yeni bir kanal kategorisi olusturuldu.");
+                crow::json::wvalue res; res["category_id"] = catId;
+                return crow::response(201, res);
+            }
+            return crow::response(500);
+        }
+            });
+
+    // KANAL SIRALAMASINI (POSITION) DEĞİŞTİRME
+    CROW_ROUTE(app, "/api/channels/<string>/position").methods("PUT"_method)
+        ([&db](const crow::request& req, std::string channelId) {
+        if (!Security::checkAuth(req, db)) return crow::response(401);
+        auto x = crow::json::load(req.body);
+        if (!x || !x.has("position")) return crow::response(400);
+
+        if (db.updateChannelPosition(channelId, x["position"].i())) {
+            return crow::response(200, "Kanal siralamasi guncellendi.");
+        }
+        return crow::response(500);
+            });
+
+    // ÜYEYİ SUSTURMA (TIMEOUT / MUTE) VE LOGLAMA
+    CROW_ROUTE(app, "/api/servers/<string>/members/<string>/timeout").methods("POST"_method)
+        ([&db](const crow::request& req, std::string serverId, std::string targetId) {
+        if (!Security::checkAuth(req, db)) return crow::response(401);
+        auto x = crow::json::load(req.body);
+
+        // Varsayılan olarak 60 dakika (1 saat) susturur
+        int durationMinutes = (x && x.has("duration_minutes")) ? x["duration_minutes"].i() : 60;
+
+        if (db.timeoutUser(serverId, targetId, durationMinutes)) {
+            db.logAction(Security::getUserIdFromHeader(req), "TIMEOUT_USER", targetId, "Uye " + std::to_string(durationMinutes) + " dakika susturuldu.");
+            return crow::response(200, "Uye basariyla susturuldu.");
+        }
+        return crow::response(500);
+            });
+    // ==========================================================
+    // V3.0 - SESLİ ODA (VOICE ROOM) YÖNETİMİ
+    // ==========================================================
+
+    // SESLİ ODAYA KATIL / AYRIL
+    CROW_ROUTE(app, "/api/channels/<string>/voice/join").methods("POST"_method, "DELETE"_method)
+        ([&db](const crow::request& req, std::string channelId) {
+        if (!Security::checkAuth(req, db)) return crow::response(401);
+        std::string myId = Security::getUserIdFromHeader(req);
+
+        if (req.method == "POST"_method) {
+            if (db.joinVoiceChannel(channelId, myId)) return crow::response(200, "Sesli odaya katildi.");
+        }
+        else {
+            if (db.leaveVoiceChannel(channelId, myId)) return crow::response(200, "Sesli odadan ayrildi.");
+        }
+        return crow::response(500);
+            });
+
+    // KAMERA, MİKROFON VEYA EKRAN PAYLAŞIMI DURUMUNU GÜNCELLE
+    CROW_ROUTE(app, "/api/channels/<string>/voice/status").methods("PUT"_method)
+        ([&db](const crow::request& req, std::string channelId) {
+        if (!Security::checkAuth(req, db)) return crow::response(401);
+        auto x = crow::json::load(req.body);
+        if (!x) return crow::response(400);
+
+        std::string myId = Security::getUserIdFromHeader(req);
+        bool muted = x.has("is_muted") ? x["is_muted"].b() : false;
+        bool camera = x.has("is_camera_on") ? x["is_camera_on"].b() : false;
+        bool screen = x.has("is_screen_sharing") ? x["is_screen_sharing"].b() : false;
+
+        if (db.updateVoiceStatus(channelId, myId, muted, camera, screen)) {
+            return crow::response(200, "Yayin durumu guncellendi.");
+        }
+        return crow::response(500);
+            });
+
+    // ODADAKİLERİ VE DURUMLARINI GETİR
+    CROW_ROUTE(app, "/api/channels/<string>/voice/members").methods("GET"_method)
+        ([&db](const crow::request& req, std::string channelId) {
+        if (!Security::checkAuth(req, db)) return crow::response(401);
+
+        auto members = db.getVoiceChannelMembers(channelId);
+        crow::json::wvalue res;
+        for (size_t i = 0; i < members.size(); ++i) {
+            res[i]["user_id"] = members[i].user_id;
+            res[i]["user_name"] = members[i].user_name;
+            res[i]["is_muted"] = members[i].is_muted;
+            res[i]["is_camera_on"] = members[i].is_camera_on;
+            res[i]["is_screen_sharing"] = members[i].is_screen_sharing;
+        }
+        return crow::response(200, res);
+            });
 }

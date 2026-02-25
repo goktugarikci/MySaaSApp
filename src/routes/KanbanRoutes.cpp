@@ -211,5 +211,67 @@ void KanbanRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         }
         return crow::response(500);
             });
+    // ==========================================================
+    // V3.0 - AŞAMA 4: KANBAN ALT GÖREVLER (CHECKLIST) VE GEÇMİŞ
+    // ==========================================================
+
+    // KARTA ALT GÖREV (CHECKLIST) EKLEME VE LİSTELEME
+    CROW_ROUTE(app, "/api/cards/<string>/checklists").methods("GET"_method, "POST"_method)
+        ([&db](const crow::request& req, std::string cardId) {
+        if (!Security::checkAuth(req, db)) return crow::response(401);
+        std::string myId = Security::getUserIdFromHeader(req);
+
+        if (req.method == "GET"_method) {
+            auto items = db.getCardChecklist(cardId);
+            crow::json::wvalue res;
+            for (size_t i = 0; i < items.size(); ++i) {
+                res[i]["id"] = items[i].id;
+                res[i]["content"] = items[i].content;
+                res[i]["is_completed"] = items[i].is_completed;
+            }
+            return crow::response(200, res);
+        }
+        else {
+            auto x = crow::json::load(req.body);
+            if (!x || !x.has("content")) return crow::response(400);
+
+            std::string itemId = db.addChecklistItem(cardId, std::string(x["content"].s()));
+            if (!itemId.empty()) {
+                db.logCardActivity(cardId, myId, "Karta yeni bir alt gorev ekledi.");
+                crow::json::wvalue res; res["item_id"] = itemId;
+                return crow::response(201, res);
+            }
+            return crow::response(500);
+        }
+            });
+
+    // ALT GÖREVİN DURUMUNU DEĞİŞTİRME (TİKLEME)
+    CROW_ROUTE(app, "/api/checklists/<string>/toggle").methods("PUT"_method)
+        ([&db](const crow::request& req, std::string itemId) {
+        if (!Security::checkAuth(req, db)) return crow::response(401);
+        auto x = crow::json::load(req.body);
+        if (!x || !x.has("is_completed")) return crow::response(400);
+
+        if (db.toggleChecklistItem(itemId, x["is_completed"].b())) {
+            return crow::response(200, "Alt gorev durumu guncellendi.");
+        }
+        return crow::response(500);
+            });
+
+    // KARTIN GEÇMİŞ AKTİVİTELERİNİ (LOGLARINI) GETİRME
+    CROW_ROUTE(app, "/api/cards/<string>/activity").methods("GET"_method)
+        ([&db](const crow::request& req, std::string cardId) {
+        if (!Security::checkAuth(req, db)) return crow::response(401);
+
+        auto activities = db.getCardActivity(cardId);
+        crow::json::wvalue res;
+        for (size_t i = 0; i < activities.size(); ++i) {
+            res[i]["id"] = activities[i].id;
+            res[i]["user_name"] = activities[i].user_name;
+            res[i]["action"] = activities[i].action;
+            res[i]["timestamp"] = activities[i].timestamp;
+        }
+        return crow::response(200, res);
+            });
 
 }

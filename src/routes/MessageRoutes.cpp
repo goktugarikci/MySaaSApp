@@ -180,4 +180,46 @@ void MessageRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(500);
             });
 
+    // ==========================================================
+    // V3.0 - AŞAMA 2: KANAL OKUNDU VE TYPING BİLGİSİ
+    // ==========================================================
+
+    // MESAJI KAYDET (FAVORİLERE EKLE/ÇIKAR)
+    CROW_ROUTE(app, "/api/messages/<string>/save").methods("POST"_method, "DELETE"_method)
+        ([&db](const crow::request& req, std::string messageId) {
+        if (!Security::checkAuth(req, db)) return crow::response(401);
+        std::string myId = Security::getUserIdFromHeader(req);
+
+        if (req.method == "POST"_method) {
+            if (db.saveMessage(myId, messageId)) return crow::response(200, "Mesaj kaydedildi.");
+        }
+        else {
+            if (db.removeSavedMessage(myId, messageId)) return crow::response(200, "Mesaj kaydedilenlerden cikarildi.");
+        }
+        return crow::response(500);
+            });
+
+    // OKUNDU BİLGİSİNİ GÜNCELLE
+    CROW_ROUTE(app, "/api/channels/<string>/read").methods("PUT"_method)
+        ([&db](const crow::request& req, std::string channelId) {
+        if (!Security::checkAuth(req, db)) return crow::response(401);
+        auto x = crow::json::load(req.body);
+        if (!x || !x.has("message_id")) return crow::response(400);
+
+        std::string myId = Security::getUserIdFromHeader(req);
+        if (db.setChannelReadCursor(myId, channelId, std::string(x["message_id"].s()))) {
+            return crow::response(200);
+        }
+        return crow::response(500);
+            });
+
+    // "YAZIYOR..." (TYPING) BİLDİRİMİ TETİKLEYİCİ
+    CROW_ROUTE(app, "/api/channels/<string>/typing").methods("POST"_method)
+        ([&db](const crow::request& req, std::string channelId) {
+        if (!Security::checkAuth(req, db)) return crow::response(401);
+        // İleride buraya WebSocket Broadcast fonksiyonu eklenecek: 
+        // WsManager::broadcastTypingEvent(channelId, userId);
+        return crow::response(200);
+            });
+
 }

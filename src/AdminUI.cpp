@@ -178,7 +178,40 @@ EndpointDef predefined_endpoints[] = {
     {"POST", "/api/servers/SERVER_ID/members/USER_ID/roles", "Uyeye Rol Ata", "{\n  \"role_id\": \"ROLE_ID\"\n}"},
     {"PUT", "/api/cards/CARD_ID/deadline", "Goreve Bitis Tarihi Ekle", "{\n  \"date\": \"2026-12-31\"\n}"},
     {"POST", "/api/cards/CARD_ID/labels", "Goreve Etiket Ekle", "{\n  \"text\": \"ACIL\",\n  \"color\": \"#FF5555\"\n}"},
-    {"GET", "/api/admin/logs", "Sistem Denetim Loglarini (Audit) Getir", ""}
+    {"GET", "/api/admin/logs", "Sistem Denetim Loglarini (Audit) Getir", ""},
+    {"PUT", "/api/servers/SERVER_ID/roles/ROLE_ID", "Rolu Guncelle", "{\n  \"name\": \"Super Mod\",\n  \"color\": \"#00FF00\",\n  \"permissions\": 2048\n}"},
+    {"DELETE", "/api/servers/SERVER_ID/roles/ROLE_ID", "Rolu Tamamen Sil", ""},
+    {"DELETE", "/api/servers/SERVER_ID/members/USER_ID/roles/ROLE_ID", "Uyeden Rolu Al", ""},
+    {"PUT", "/api/admin/reports/REPORT_ID", "Sikayeti Cozuldu Isaretle", ""},
+    // --- 13. AŞAMA 2 (DISCORD UX - KULLANICI DENEYİMİ) ---
+    {"POST", "/api/users/USER_ID/notes", "Kullaniciya Ozel Not Ekle", "{\n  \"note\": \"Bu kisi iyi bir frontendci.\"\n}"},
+    {"GET", "/api/users/USER_ID/notes", "Kullaniciya Eklenen Notu Getir", ""},
+    {"POST", "/api/messages/MSG_ID/save", "Mesaji Kaydedilenlere Ekle", ""},
+    {"GET", "/api/users/me/saved-messages", "Kaydedilen Mesajlarimi Getir", ""},
+    {"PUT", "/api/channels/CHANNEL_ID/read", "Kanalda Okundu Bilgisi Gonder", "{\n  \"message_id\": \"SON_OKUNAN_MESAJ_ID\"\n}"},
+    {"POST", "/api/channels/CHANNEL_ID/typing", "Kanala 'Yaziyor...' Sinyali Gonder", ""},
+    // --- 14. AŞAMA 3 (KATEGORİLER, SIRALAMA VE GÜVENLİK) ---
+    {"POST", "/api/servers/SERVER_ID/categories", "Sunucuya Kategori (Klasör) Ekle", "{\n  \"name\": \"Yazilim Departmani\",\n  \"position\": 1\n}"},
+    {"GET", "/api/servers/SERVER_ID/categories", "Sunucu Kategorilerini Listele", ""},
+    {"PUT", "/api/channels/CHANNEL_ID/position", "Kanali Yukari/Asagi Tasi (Siralama)", "{\n  \"position\": 2\n}"},
+    {"POST", "/api/servers/SERVER_ID/members/USER_ID/timeout", "Uyeyi Sustur (Mute / Timeout)", "{\n  \"duration_minutes\": 60\n}"},
+    {"POST", "/api/auth/2fa/enable", "Iki Asamali Dogrulamayi (2FA) Aktif Et", ""},
+    // --- 15. AŞAMA 4 (GELİŞMİŞ KANBAN TRELLO+) ---
+    {"POST", "/api/cards/CARD_ID/checklists", "Karta Alt Gorev (Checklist) Ekle", "{\n  \"content\": \"Veritabani testlerini tamamla\"\n}"},
+    {"GET", "/api/cards/CARD_ID/checklists", "Kartin Alt Gorevlerini Getir", ""},
+    {"PUT", "/api/checklists/ITEM_ID/toggle", "Alt Gorevi Tamamlandi (Tikli) Yap", "{\n  \"is_completed\": true\n}"},
+    {"GET", "/api/cards/CARD_ID/activity", "Kartin Gecmis Hareketlerini (Log) Getir", ""},
+    // --- EKSTRA: KULLANICI AYARLARI ---
+    {"DELETE", "/api/auth/2fa/disable", "Iki Asamali Dogrulamayi (2FA) Kapat", ""},
+    {"DELETE", "/api/users/me/subscription", "Aktif Aboneligi Iptal Et (Free'ye Don)", ""},
+    {"POST", "/api/channels/CHANNEL_ID/voice/join", "Sesli Odaya Katil", ""},
+    {"DELETE", "/api/channels/CHANNEL_ID/voice/join", "Sesli Odadan Ayril", ""},
+    {"PUT", "/api/channels/CHANNEL_ID/voice/status", "Kamera/Mikrofon Durumunu Degistir", "{\n  \"is_muted\": false,\n  \"is_camera_on\": true,\n  \"is_screen_sharing\": false\n}"},
+    {"GET", "/api/channels/CHANNEL_ID/voice/members", "Odadaki Uyeleri ve Yayin Durumlarini Getir", ""},
+    // --- 18. WEBRTC VE GÖRÜNTÜLÜ ARAMA OPTİMİZASYONU ---
+    {"GET", "/api/webrtc/ice-servers", "Guncel STUN/TURN (ICE) Sunucularini Getir", ""},
+    {"POST", "/api/webrtc/metrics", "Goruntulu Arama Kalite Metriklerini (QoS) Gonder", "{\n  \"channel_id\": \"KANAL_ID\",\n  \"latency\": 120,\n  \"packet_loss\": 1.5,\n  \"resolution\": \"1080p\"\n}"}
+
 };
 
 // =============================================================
