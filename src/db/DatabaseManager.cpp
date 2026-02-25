@@ -542,7 +542,7 @@ std::vector<UserReport> DatabaseManager::getOpenReports() {
     std::vector<UserReport> reports; std::string sql = "SELECT ID, ReporterID, ContentID, Type, Reason, Status FROM Reports WHERE Status='OPEN';"; sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) { while (sqlite3_step(stmt) == SQLITE_ROW) reports.push_back({ SAFE_TEXT(0), SAFE_TEXT(1), SAFE_TEXT(2), SAFE_TEXT(3), SAFE_TEXT(4), SAFE_TEXT(5) }); } sqlite3_finalize(stmt); return reports;
 }
-bool DatabaseManager::resolveReport(std::string reportId) { return executeQuery("UPDATE Reports SET Status='RESOLVED' WHERE ID='" + reportId + "'"); }
+
 
 void DatabaseManager::processKanbanNotifications() {
     std::string sqlWarning = "SELECT ID, Title, AssigneeID FROM KanbanCards WHERE IsCompleted = 0 AND WarningSent = 0 AND DueDate IS NOT NULL AND (julianday(DueDate) - julianday('now', 'localtime')) <= (1.0/24.0) AND (julianday(DueDate) - julianday('now', 'localtime')) > 0 AND AssigneeID != '';";
@@ -879,4 +879,292 @@ std::vector<DatabaseManager::AuditLogRecord> DatabaseManager::getAuditLogs(int l
         sqlite3_finalize(stmt);
     }
     return logs;
+}
+
+// ==========================================================
+// AŞAMA 2: GELİŞMİŞ KULLANICI DENEYİMİ (DISCORD UX)
+// ==========================================================
+
+bool DatabaseManager::setChannelReadCursor(const std::string& userId, const std::string& channelId, const std::string& messageId) {
+    executeQuery("CREATE TABLE IF NOT EXISTS channel_read_cursors (user_id TEXT, channel_id TEXT, last_message_id TEXT, PRIMARY KEY(user_id, channel_id));");
+    std::string sql = "INSERT OR REPLACE INTO channel_read_cursors (user_id, channel_id, last_message_id) VALUES ('" + userId + "', '" + channelId + "', '" + messageId + "');";
+    return executeQuery(sql);
+}
+
+bool DatabaseManager::addUserNote(const std::string& ownerId, const std::string& targetUserId, const std::string& note) {
+    executeQuery("CREATE TABLE IF NOT EXISTS user_notes (owner_id TEXT, target_id TEXT, note TEXT, PRIMARY KEY(owner_id, target_id));");
+
+    std::string safeNote = note;
+    size_t pos = 0; while ((pos = safeNote.find("'", pos)) != std::string::npos) { safeNote.replace(pos, 1, "''"); pos += 2; }
+
+    std::string sql = "INSERT OR REPLACE INTO user_notes (owner_id, target_id, note) VALUES ('" + ownerId + "', '" + targetUserId + "', '" + safeNote + "');";
+    return executeQuery(sql);
+}
+
+std::string DatabaseManager::getUserNote(const std::string& ownerId, const std::string& targetUserId) {
+    std::string note = "";
+    sqlite3_stmt* stmt;
+    std::string sql = "SELECT note FROM user_notes WHERE owner_id = '" + ownerId + "' AND target_id = '" + targetUserId + "';";
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            if (sqlite3_column_text(stmt, 0)) note = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        }
+        sqlite3_finalize(stmt);
+    }
+    return note;
+}
+
+bool DatabaseManager::saveMessage(const std::string& userId, const std::string& messageId) {
+    executeQuery("CREATE TABLE IF NOT EXISTS saved_messages (user_id TEXT, message_id TEXT, saved_at DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(user_id, message_id));");
+    std::string sql = "INSERT OR IGNORE INTO saved_messages (user_id, message_id) VALUES ('" + userId + "', '" + messageId + "');";
+    return executeQuery(sql);
+}
+
+bool DatabaseManager::removeSavedMessage(const std::string& userId, const std::string& messageId) {
+    return executeQuery("DELETE FROM saved_messages WHERE user_id = '" + userId + "' AND message_id = '" + messageId + "';");
+}
+
+std::vector<Message> DatabaseManager::getSavedMessages(const std::string& userId) {
+    std::vector<Message> msgs;
+    std::string sql = "SELECT m.id, m.sender_id, u.name, m.content, m.timestamp FROM saved_messages sm JOIN messages m ON sm.message_id = m.id JOIN Users u ON m.sender_id = u.ID WHERE sm.user_id = '" + userId + "' ORDER BY sm.saved_at DESC;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            Message msg;
+            msg.id = std::to_string(sqlite3_column_int(stmt, 0));
+            msg.sender_id = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+            msg.sender_name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+            msg.content = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
+            msg.timestamp = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
+            msgs.push_back(msg);
+        }
+        sqlite3_finalize(stmt);
+    }
+    return msgs;
+}
+
+
+// ==========================================================
+// EKSİK CRUD İŞLEMLERİ (AŞAMA 1)
+// ==========================================================
+bool DatabaseManager::updateServerRole(const std::string& roleId, const std::string& name, const std::string& color, int permissions) {
+    std::string sql = "UPDATE server_roles SET name = '" + name + "', color = '" + color + "', permissions = " + std::to_string(permissions) + " WHERE id = '" + roleId + "';";
+    return executeQuery(sql);
+}
+
+bool DatabaseManager::deleteServerRole(const std::string& roleId) {
+    // Önce bu role sahip olan kullanıcıların yetkilerini temizle (Güvenlik)
+    executeQuery("DELETE FROM user_roles WHERE role_id = '" + roleId + "';");
+    // Sonra rolü tamamen sil
+    return executeQuery("DELETE FROM server_roles WHERE id = '" + roleId + "';");
+}
+
+bool DatabaseManager::removeRoleFromUser(const std::string& serverId, const std::string& userId, const std::string& roleId) {
+    return executeQuery("DELETE FROM user_roles WHERE server_id = '" + serverId + "' AND user_id = '" + userId + "' AND role_id = '" + roleId + "';");
+}
+
+bool DatabaseManager::resolveReport(const std::string& reportId) {
+    // Şikayeti okundu/çözüldü olarak işaretle
+    return executeQuery("UPDATE reports SET status = 'Resolved' WHERE id = '" + reportId + "';");
+}
+// ==========================================================
+// AŞAMA 3: KATEGORİLER, KANAL SIRALAMASI VE GÜVENLİK
+// ==========================================================
+
+std::string DatabaseManager::createServerCategory(const std::string& serverId, const std::string& name, int position) {
+    // Kategori tablosu
+    executeQuery("CREATE TABLE IF NOT EXISTS categories (id TEXT PRIMARY KEY, server_id TEXT, name TEXT, position INTEGER);");
+
+    // Kanallar tablosuna "category_id" ve "position" kolonları ekleyelim (Eğer yoksa)
+    executeQuery("ALTER TABLE Channels ADD COLUMN category_id TEXT DEFAULT '';");
+    executeQuery("ALTER TABLE Channels ADD COLUMN position INTEGER DEFAULT 0;");
+
+    std::string catId = "CAT-" + Security::generateId(10);
+    std::string safeName = name;
+    size_t pos = 0; while ((pos = safeName.find("'", pos)) != std::string::npos) { safeName.replace(pos, 1, "''"); pos += 2; }
+
+    std::string sql = "INSERT INTO categories (id, server_id, name, position) VALUES ('" + catId + "', '" + serverId + "', '" + safeName + "', " + std::to_string(position) + ");";
+    if (executeQuery(sql)) return catId;
+    return "";
+}
+
+std::vector<DatabaseManager::ServerCategory> DatabaseManager::getServerCategories(const std::string& serverId) {
+    std::vector<ServerCategory> cats;
+    executeQuery("CREATE TABLE IF NOT EXISTS categories (id TEXT PRIMARY KEY, server_id TEXT, name TEXT, position INTEGER);");
+
+    std::string sql = "SELECT id, name, position FROM categories WHERE server_id = '" + serverId + "' ORDER BY position ASC;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            ServerCategory cat;
+            cat.id = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+            cat.server_id = serverId;
+            cat.name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+            cat.position = sqlite3_column_int(stmt, 2);
+            cats.push_back(cat);
+        }
+        sqlite3_finalize(stmt);
+    }
+    return cats;
+}
+
+bool DatabaseManager::updateChannelPosition(const std::string& channelId, int newPosition) {
+    return executeQuery("UPDATE Channels SET position = " + std::to_string(newPosition) + " WHERE ID = '" + channelId + "';");
+}
+
+bool DatabaseManager::timeoutUser(const std::string& serverId, const std::string& userId, int durationMinutes) {
+    executeQuery("CREATE TABLE IF NOT EXISTS server_timeouts (server_id TEXT, user_id TEXT, expires_at DATETIME, PRIMARY KEY(server_id, user_id));");
+
+    // SQLite'ın mükemmel datetime fonksiyonu ile gelecekteki bitiş tarihini hesaplıyoruz
+    std::string sql = "INSERT OR REPLACE INTO server_timeouts (server_id, user_id, expires_at) VALUES ('" + serverId + "', '" + userId + "', datetime('now', '+" + std::to_string(durationMinutes) + " minutes'));";
+    return executeQuery(sql);
+}
+
+bool DatabaseManager::enable2FA(const std::string& userId, const std::string& secret) {
+    executeQuery("ALTER TABLE Users ADD COLUMN two_factor_secret TEXT;");
+    return executeQuery("UPDATE Users SET two_factor_secret = '" + secret + "' WHERE ID = '" + userId + "';");
+}
+
+// ==========================================================
+// AŞAMA 4: GELİŞMİŞ KANBAN (TRELLO+)
+// ==========================================================
+
+std::string DatabaseManager::addChecklistItem(const std::string& cardId, const std::string& content) {
+    executeQuery("CREATE TABLE IF NOT EXISTS card_checklists (id TEXT PRIMARY KEY, card_id TEXT, content TEXT, is_completed INTEGER DEFAULT 0);");
+
+    std::string itemId = "CHK-" + Security::generateId(10);
+    std::string safeContent = content;
+    size_t pos = 0; while ((pos = safeContent.find("'", pos)) != std::string::npos) { safeContent.replace(pos, 1, "''"); pos += 2; }
+
+    std::string sql = "INSERT INTO card_checklists (id, card_id, content) VALUES ('" + itemId + "', '" + cardId + "', '" + safeContent + "');";
+    if (executeQuery(sql)) {
+        // Alt görev eklendiğinde bunu kart geçmişine de yazalım (opsiyonel ama şık durur)
+        return itemId;
+    }
+    return "";
+}
+
+bool DatabaseManager::toggleChecklistItem(const std::string& itemId, bool isCompleted) {
+    return executeQuery("UPDATE card_checklists SET is_completed = " + std::to_string(isCompleted ? 1 : 0) + " WHERE id = '" + itemId + "';");
+}
+
+std::vector<DatabaseManager::ChecklistItem> DatabaseManager::getCardChecklist(const std::string& cardId) {
+    std::vector<ChecklistItem> items;
+    std::string sql = "SELECT id, content, is_completed FROM card_checklists WHERE card_id = '" + cardId + "';";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            ChecklistItem item;
+            item.id = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+            item.card_id = cardId;
+            item.content = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+            item.is_completed = sqlite3_column_int(stmt, 2) == 1;
+            items.push_back(item);
+        }
+        sqlite3_finalize(stmt);
+    }
+    return items;
+}
+
+bool DatabaseManager::logCardActivity(const std::string& cardId, const std::string& userId, const std::string& action) {
+    executeQuery("CREATE TABLE IF NOT EXISTS card_activities (id TEXT PRIMARY KEY, card_id TEXT, user_id TEXT, action TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP);");
+
+    std::string actId = "ACT-" + Security::generateId(10);
+    std::string safeAction = action;
+    size_t pos = 0; while ((pos = safeAction.find("'", pos)) != std::string::npos) { safeAction.replace(pos, 1, "''"); pos += 2; }
+
+    std::string sql = "INSERT INTO card_activities (id, card_id, user_id, action) VALUES ('" + actId + "', '" + cardId + "', '" + userId + "', '" + safeAction + "');";
+    return executeQuery(sql);
+}
+
+std::vector<DatabaseManager::CardActivity> DatabaseManager::getCardActivity(const std::string& cardId) {
+    std::vector<CardActivity> activities;
+    // Kullanıcı adını da join ile çekiyoruz ki arayüzde "Ahmet kartı taşıdı" diyebilelim
+    std::string sql = "SELECT a.id, a.user_id, u.name, a.action, a.timestamp FROM card_activities a JOIN Users u ON a.user_id = u.ID WHERE a.card_id = '" + cardId + "' ORDER BY a.timestamp DESC;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            CardActivity act;
+            act.id = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+            act.card_id = cardId;
+            act.user_id = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+            act.user_name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+            act.action = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
+            act.timestamp = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
+            activities.push_back(act);
+        }
+        sqlite3_finalize(stmt);
+    }
+    return activities;
+}
+
+// ==========================================================
+// KULLANICI YÖNETİMİ EKSTRALARI (2FA İptali ve Abonelik İptali)
+// ==========================================================
+
+bool DatabaseManager::disable2FA(const std::string& userId) {
+    // Kullanıcının 2FA gizli anahtarını (secret) temizleyerek özelliği devre dışı bırakırız.
+    return executeQuery("UPDATE Users SET two_factor_secret = '' WHERE ID = '" + userId + "';");
+}
+
+bool DatabaseManager::cancelSubscription(const std::string& userId) {
+    // Kullanıcının abonelik seviyesini "0" (Normal/Free) olarak günceller
+    return executeQuery("UPDATE Users SET subscription_level = 0 WHERE ID = '" + userId + "';");
+}
+// ==========================================================
+// SESLİ KANAL VE YAYIN DURUMU (VOICE & VIDEO PRESENCE)
+// ==========================================================
+
+bool DatabaseManager::joinVoiceChannel(const std::string& channelId, const std::string& userId) {
+    // Sesli odadaki aktif kullanıcıları tutan anlık tablo (Geçici durumlar için)
+    executeQuery("CREATE TABLE IF NOT EXISTS voice_active_members (channel_id TEXT, user_id TEXT, is_muted INTEGER DEFAULT 0, is_camera_on INTEGER DEFAULT 0, is_screen_sharing INTEGER DEFAULT 0, joined_at DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(channel_id, user_id));");
+
+    // Kullanıcı başka bir odadaysa önce oradan çıkaralım (Aynı anda 2 odada olunmaz)
+    executeQuery("DELETE FROM voice_active_members WHERE user_id = '" + userId + "';");
+
+    std::string sql = "INSERT INTO voice_active_members (channel_id, user_id) VALUES ('" + channelId + "', '" + userId + "');";
+    return executeQuery(sql);
+}
+
+bool DatabaseManager::leaveVoiceChannel(const std::string& channelId, const std::string& userId) {
+    return executeQuery("DELETE FROM voice_active_members WHERE channel_id = '" + channelId + "' AND user_id = '" + userId + "';");
+}
+
+bool DatabaseManager::updateVoiceStatus(const std::string& channelId, const std::string& userId, bool isMuted, bool isCameraOn, bool isScreenSharing) {
+    std::string sql = "UPDATE voice_active_members SET is_muted = " + std::to_string(isMuted ? 1 : 0) +
+        ", is_camera_on = " + std::to_string(isCameraOn ? 1 : 0) +
+        ", is_screen_sharing = " + std::to_string(isScreenSharing ? 1 : 0) +
+        " WHERE channel_id = '" + channelId + "' AND user_id = '" + userId + "';";
+    return executeQuery(sql);
+}
+
+std::vector<DatabaseManager::VoiceMember> DatabaseManager::getVoiceChannelMembers(const std::string& channelId) {
+    std::vector<VoiceMember> members;
+    std::string sql = "SELECT v.user_id, u.name, v.is_muted, v.is_camera_on, v.is_screen_sharing FROM voice_active_members v JOIN Users u ON v.user_id = u.ID WHERE v.channel_id = '" + channelId + "' ORDER BY v.joined_at ASC;";
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            VoiceMember vm;
+            vm.user_id = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+            vm.user_name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+            vm.is_muted = sqlite3_column_int(stmt, 2) == 1;
+            vm.is_camera_on = sqlite3_column_int(stmt, 3) == 1;
+            vm.is_screen_sharing = sqlite3_column_int(stmt, 4) == 1;
+            members.push_back(vm);
+        }
+        sqlite3_finalize(stmt);
+    }
+    return members;
+}
+// ==========================================================
+// OPTİMİZASYON: WEBRTC KALİTE METRİKLERİ (QoS)
+// ==========================================================
+
+bool DatabaseManager::logCallQuality(const std::string& userId, const std::string& channelId, int latency, float packetLoss, const std::string& resolution) {
+    executeQuery("CREATE TABLE IF NOT EXISTS call_quality_metrics (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, channel_id TEXT, latency INTEGER, packet_loss REAL, resolution TEXT, recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
+
+    std::string sql = "INSERT INTO call_quality_metrics (user_id, channel_id, latency, packet_loss, resolution) VALUES ('"
+        + userId + "', '" + channelId + "', " + std::to_string(latency) + ", " + std::to_string(packetLoss) + ", '" + resolution + "');";
+    return executeQuery(sql);
 }

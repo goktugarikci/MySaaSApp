@@ -162,4 +162,15 @@ void AdminRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         return crow::response(200, res);
             });
 
+    // ŞİKAYETİ ÇÖZÜLDÜ (KAPATILDI) OLARAK İŞARETLE
+    CROW_ROUTE(app, "/api/admin/reports/<string>").methods("PUT"_method)
+        ([&db](const crow::request& req, std::string reportId) {
+        if (!Security::checkAuth(req, db, true)) return crow::response(403); // Sadece admin
+        if (db.resolveReport(reportId)) {
+            db.logAction(Security::getUserIdFromHeader(req), "RESOLVE_REPORT", reportId, "Admin bir sikayeti cozume kavusturdu.");
+            return crow::response(200, "Sikayet cozuldu olarak isaretlendi.");
+        }
+        return crow::response(500);
+            });
+
 }

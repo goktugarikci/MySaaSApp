@@ -114,5 +114,34 @@ void AuthRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
         }
         return crow::response(400, "Gecersiz veya suresi dolmus dogrulama kodu.");
             });
+    // 2FA AKTİFLEŞTİRME (İki Aşamalı Doğrulama)
+    CROW_ROUTE(app, "/api/auth/2fa/enable").methods("POST"_method)
+        ([&db](const crow::request& req) {
+        if (!Security::checkAuth(req, db)) return crow::response(401);
+        std::string myId = Security::getUserIdFromHeader(req);
 
+        // Gerçek bir sistemde burada Google Authenticator için "TOTP Secret" ve "QR Code" üretilir.
+        std::string mockSecret = Security::generateId(16);
+
+        if (db.enable2FA(myId, mockSecret)) {
+            db.logAction(myId, "ENABLE_2FA", myId, "Kullanici 2 Asamali Dogrulamayi aktif etti.");
+            crow::json::wvalue res;
+            res["secret"] = mockSecret;
+            res["message"] = "2FA aktif edildi. Lutfen bu gizli anahtari Authenticator uygulamasina girin.";
+            return crow::response(200, res);
+        }
+        return crow::response(500);
+            });
+    // 2FA DEVRE DIŞI BIRAKMA (Kapatma)
+    CROW_ROUTE(app, "/api/auth/2fa/disable").methods("DELETE"_method, "POST"_method)
+        ([&db](const crow::request& req) {
+        if (!Security::checkAuth(req, db)) return crow::response(401);
+        std::string myId = Security::getUserIdFromHeader(req);
+
+        if (db.disable2FA(myId)) {
+            db.logAction(myId, "DISABLE_2FA", myId, "Kullanici 2 Asamali Dogrulamayi (2FA) kapatti.");
+            return crow::response(200, "2FA basariyla devre disi birakildi.");
+        }
+        return crow::response(500);
+            });
 }
