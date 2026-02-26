@@ -210,7 +210,7 @@ public:
     // AŞAMA 3: KATEGORİLER, KANAL SIRALAMASI VE GÜVENLİK
     // ==========================================================
 
-    struct ServerCategory { std::string id, server_id, name; int position; };
+    struct ServerCategory { std::string id, server_id, name; int position = 0; };
     std::string createServerCategory(const std::string& serverId, const std::string& name, int position);
     std::vector<ServerCategory> getServerCategories(const std::string& serverId);
 
@@ -223,7 +223,7 @@ public:
     // AŞAMA 4: GELİŞMİŞ KANBAN (TRELLO+) - ALT GÖREVLER VE GEÇMİŞ
     // ==========================================================
 
-    struct ChecklistItem { std::string id, card_id, content; bool is_completed; };
+    struct ChecklistItem { std::string id, card_id, content; bool is_completed = false; };
     struct CardActivity { std::string id, card_id, user_id, user_name, action, timestamp; };
 
     std::string addChecklistItem(const std::string& cardId, const std::string& content);
@@ -243,12 +243,14 @@ public:
     // SESLİ KANAL VE YAYIN DURUMU (VOICE & VIDEO PRESENCE)
     // ==========================================================
 
-    struct VoiceMember { std::string user_id, user_name; bool is_muted, is_camera_on, is_screen_sharing; };
+
+    struct VoiceMember { std::string user_id, user_name; bool is_muted, is_camera_on, is_screen_sharing = false; };
 
     bool joinVoiceChannel(const std::string& channelId, const std::string& userId);
     bool leaveVoiceChannel(const std::string& channelId, const std::string& userId);
     bool updateVoiceStatus(const std::string& channelId, const std::string& userId, bool isMuted, bool isCameraOn, bool isScreenSharing);
     std::vector<VoiceMember> getVoiceChannelMembers(const std::string& channelId);
+
     // ==========================================================
     // OPTİMİZASYON: WEBRTC BAĞLANTI VE KALİTE (QoS) METRİKLERİ
     // ==========================================================

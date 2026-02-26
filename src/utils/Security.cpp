@@ -3,6 +3,7 @@
 #include <argon2.h>
 #include <vector>
 #include <chrono>
+#include <nlohmann/json.hpp>
 
 // PicoJSON kütüphanesini vcpkg.json üzerinden indirdik.
 // Bu yüzden derleyicinin PicoJSON'u engellemesini devre dışı bırakıyoruz:
@@ -77,4 +78,28 @@ bool Security::checkAuth(const crow::request& req, DatabaseManager& db, bool req
     if (userId.empty()) return false;
     if (userId == "aB3dE7xY9Z1kL0m") return true;
     return requireAdmin ? db.isSystemAdmin(userId) : true;
+}
+std::string Security::generateLiveKitToken(const std::string& roomName, const std::string& participantName, const std::string& participantId) {
+    // Canlı ortama geçtiğinizde bu key ve secret değerlerini ortam değişkenlerinden (ENV) veya konfigürasyon dosyasından almalısınız.
+    // LiveKit --dev modunda çalışırken varsayılan olarak bu değerleri kullanır.
+    const std::string API_KEY = "devkey";
+    const std::string API_SECRET = "secret";
+
+    auto token = jwt::create()
+        .set_issuer(API_KEY)
+        .set_subject(participantId)
+        .set_type("JWT")
+        .set_id(generateId(12)) // Rastgele bir JTI (Token ID)
+        .set_issued_at(std::chrono::system_clock::now())
+        .set_expires_at(std::chrono::system_clock::now() + std::chrono::hours(2)) // Token 2 saat geçerli
+        .set_payload_claim("name", jwt::claim(participantName))
+        .set_payload_claim("video", jwt::claim(nlohmann::json{
+            {"room", roomName},
+            {"roomJoin", true},
+            {"canPublish", true},
+            {"canSubscribe", true}
+            }.dump())) // LiveKit'e özel yetki JSON'u
+        .sign(jwt::algorithm::hs256{ API_SECRET });
+
+    return token;
 }

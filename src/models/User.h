@@ -7,10 +7,10 @@ struct User {
     std::string name;
     std::string email;
     std::string status;
-    bool isSystemAdmin;
+    bool isSystemAdmin = false;
     std::string avatarUrl;
     std::string subscriptionLevel;
-    int subscriptionLevelInt;
+    int subscriptionLevelInt = 0;
     std::string subscriptionExpiresAt;
     std::string googleId;
 

@@ -1111,6 +1111,8 @@ bool DatabaseManager::cancelSubscription(const std::string& userId) {
     // Kullanıcının abonelik seviyesini "0" (Normal/Free) olarak günceller
     return executeQuery("UPDATE Users SET subscription_level = 0 WHERE ID = '" + userId + "';");
 }
+
+
 // ==========================================================
 // SESLİ KANAL VE YAYIN DURUMU (VOICE & VIDEO PRESENCE)
 // ==========================================================
@@ -1157,6 +1159,7 @@ std::vector<DatabaseManager::VoiceMember> DatabaseManager::getVoiceChannelMember
     }
     return members;
 }
+
 // ==========================================================
 // OPTİMİZASYON: WEBRTC KALİTE METRİKLERİ (QoS)
 // ==========================================================

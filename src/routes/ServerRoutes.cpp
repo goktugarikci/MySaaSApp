@@ -295,19 +295,39 @@ void ServerRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
     // ==========================================================
 
     // SESLİ ODAYA KATIL / AYRIL
+// SESLİ ODAYA KATIL (MEDYA SUNUCUSUNDAN TOKEN AL)
     CROW_ROUTE(app, "/api/channels/<string>/voice/join").methods("POST"_method, "DELETE"_method)
         ([&db](const crow::request& req, std::string channelId) {
         if (!Security::checkAuth(req, db)) return crow::response(401);
         std::string myId = Security::getUserIdFromHeader(req);
 
         if (req.method == "POST"_method) {
-            if (db.joinVoiceChannel(channelId, myId)) return crow::response(200, "Sesli odaya katildi.");
+            // 1. Kullanıcıyı SQL Veritabanında Odaya Ekle
+            if (db.joinVoiceChannel(channelId, myId)) {
+
+                // 2. Kullanıcının LiveKit'te görünecek adını hazırla
+                // İleride db.getUserById() tarzı bir fonksiyonla gerçek adını çekebilirsiniz, şimdilik ID'si ile isim oluşturuyoruz:
+                std::string myName = "User_" + myId;
+
+                // 3. LiveKit Biletini (JWT) Üret
+                std::string livekitToken = Security::generateLiveKitToken(channelId, myName, myId);
+
+                // 4. İstemciye (Frontend) Bağlantı Bilgilerini JSON Olarak Dön
+                crow::json::wvalue res;
+                res["message"] = "Sesli odaya katildiniz.";
+                // Eğer LiveKit sunucunuzu Oracle Cloud'a kurduysanız, "localhost" yerine o makinenin IP adresini (ws://IP_ADRES:7880) yazmalısınız.
+                res["livekit_url"] = "ws://localhost:7880";
+                res["livekit_token"] = livekitToken;
+
+                return crow::response(200, res);
+            }
         }
         else {
             if (db.leaveVoiceChannel(channelId, myId)) return crow::response(200, "Sesli odadan ayrildi.");
         }
         return crow::response(500);
             });
+
 
     // KAMERA, MİKROFON VEYA EKRAN PAYLAŞIMI DURUMUNU GÜNCELLE
     CROW_ROUTE(app, "/api/channels/<string>/voice/status").methods("PUT"_method)
