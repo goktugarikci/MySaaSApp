@@ -27,4 +27,6 @@ public:
     static std::string generateJwt(const std::string& userId); // EKSİK OLAN METOT EKLENDİ
     static bool checkAuth(const crow::request& req, DatabaseManager& db, bool requireAdmin = false);
     static std::string getUserIdFromHeader(const crow::request& req);
+    // LiveKit Medya Sunucusu için Access Token Üretici
+    static std::string generateLiveKitToken(const std::string& roomName, const std::string& participantName, const std::string& participantId);
 };
