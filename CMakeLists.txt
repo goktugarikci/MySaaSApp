@@ -1,49 +1,59 @@
 ﻿cmake_minimum_required(VERSION 3.15)
-project(MySaaSApp VERSION 1.0.0 LANGUAGES CXX)
+project(MySaaSApp)
 
+# C++17 Standardını zorunlu kılıyoruz
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# =========================================================================
+# 1. KÜTÜPHANELERİ BUL (VCPKG ÜZERİNDEN)
+# =========================================================================
 find_package(Crow CONFIG REQUIRED)
-find_package(unofficial-sqlite3 CONFIG REQUIRED)
-find_package(cpr CONFIG REQUIRED)
-find_package(imgui CONFIG REQUIRED)
-find_package(glfw3 CONFIG REQUIRED)
-find_package(OpenGL REQUIRED)
-find_package(unofficial-argon2 CONFIG REQUIRED)
-find_package(jwt-cpp CONFIG REQUIRED)
+find_package(sqlite3 CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
+find_package(cpr CONFIG REQUIRED)
+find_package(jwt-cpp CONFIG REQUIRED)
+find_package(argon2 CONFIG REQUIRED) # Şifreleme (Hash) Kütüphanesi Eklendi
 
-# 1. PROGRAM: BACKEND SUNUCUSU
-add_executable(MySaaSApp 
-    src/main.cpp 
-    src/db/DatabaseManager.cpp 
-    src/utils/Security.cpp 
-    src/utils/FileManager.cpp
-    src/routes/AuthRoutes.cpp
-    src/routes/UserRoutes.cpp
-    src/routes/ServerRoutes.cpp
-    src/routes/MessageRoutes.cpp
-    src/routes/KanbanRoutes.cpp
-    src/routes/WsRoutes.cpp
-    src/routes/AdminRoutes.cpp
-    src/routes/PaymentRoutes.cpp "src/routes/UploadRoutes.cpp" "src/routes/RoleRoutes.cpp" "src/routes/ReportRoutes..cpp")
+# =========================================================================
+# 2. PROJE DOSYALARINI OTOMATİK TOPLA
+# =========================================================================
+file(GLOB_RECURSE API_SOURCES "src/*.cpp")
 
+# AdminUI.cpp dosyasını API kaynaklarından çıkar (Sadece Windows'ta derlenecek)
+list(REMOVE_ITEM API_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/AdminUI.cpp")
+
+# =========================================================================
+# 3. LINUX VE WINDOWS İÇİN ORTAK BACKEND API SUNUCUSU
+# =========================================================================
+add_executable(MySaaSApp ${API_SOURCES})
+
+# Bulunan kütüphaneleri API motorumuza statik olarak bağlıyoruz
 target_link_libraries(MySaaSApp PRIVATE 
     Crow::Crow 
-    unofficial::sqlite3::sqlite3
-    cpr::cpr
-    unofficial::argon2::libargon2
+    sqlite3 
+    nlohmann_json::nlohmann_json 
+    cpr::cpr 
     jwt-cpp::jwt-cpp
-    nlohmann_json::nlohmann_json
+    argon2
 )
 
-# 2. PROGRAM: SÜPER ADMIN ARAYÜZÜ
-add_executable(AdminUI src/AdminUI.cpp)
-target_link_libraries(AdminUI PRIVATE 
-    imgui::imgui
-    glfw
-    OpenGL::GL
-    cpr::cpr
-    nlohmann_json::nlohmann_json
-)
+# Linux sistemlerde C++ thread yapısı için arka planda pthread zorunludur
+if(UNIX AND NOT APPLE)
+    target_link_libraries(MySaaSApp PRIVATE pthread)
+endif()
+
+# =========================================================================
+# 4. SADECE WINDOWS İÇİN SÜPER ADMIN PANELİ (Arayüz)
+# =========================================================================
+if(WIN32)
+    # Sadece Windows işletim sisteminde AdminUI.exe dosyasını derler
+    add_executable(AdminUI src/AdminUI.cpp)
+    
+    # Not: Eğer projenizde ImGui/GLFW kütüphaneleri vcpkg ile kuruluysa
+    # alt satıra onları da eklemelisiniz (Örn: imgui::imgui glfw)
+    target_link_libraries(AdminUI PRIVATE 
+        cpr::cpr 
+        nlohmann_json::nlohmann_json
+    )
+endif()
