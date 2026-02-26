@@ -1,6 +1,7 @@
 #include "AuthRoutes.h"
 #include "../utils/Security.h"
 #include <crow/json.h>
+#include <cpr/cpr.h>
 
 void AuthRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
 
@@ -44,28 +45,48 @@ void AuthRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
 
         return crow::response(409, "Bu e-posta adresi zaten kayitli.");
             });
-
+    // GOOGLE OAUTH2 GÜVENLİ GİRİŞ (TOKEN DOĞRULAMA)
     CROW_ROUTE(app, "/api/auth/google/callback").methods(crow::HTTPMethod::POST)
         ([&db](const crow::request& req) {
         auto body = crow::json::load(req.body);
-        if (!body || !body.has("email") || !body.has("google_id")) {
-            return crow::response(400, "Eksik bilgi (email ve google_id gerekli)");
+        if (!body || !body.has("id_token")) {
+            return crow::response(400, "Eksik bilgi (id_token gerekli)");
         }
 
-        std::string email = body["email"].s();
-        std::string googleId = body["google_id"].s();
-        std::string name = body.has("name") ? std::string(body["name"].s()) : std::string("Google User");
-        std::string avatarUrl = body.has("avatar_url") ? std::string(body["avatar_url"].s()) : std::string("");
+        std::string idToken = body["id_token"].s();
 
+        // 1. C++ sunucumuz gizlice Google'a bağlanıp tokeni doğruluyor
+        cpr::Response r = cpr::Get(
+            cpr::Url{ "https://oauth2.googleapis.com/tokeninfo" },
+            cpr::Parameters{ {"id_token", idToken} }
+        );
+
+        // Google bu token geçersiz veya sahte derse:
+        if (r.status_code != 200) {
+            return crow::response(401, "Google Dogrulama Basarisiz: Sahte veya suresi dolmus token.");
+        }
+
+        // 2. Token gerçekse Google'ın bize verdiği kullanıcı verilerini oku
+        auto googleData = crow::json::load(r.text);
+        if (!googleData) return crow::response(500, "Google yaniti okunamadi.");
+
+        std::string email = googleData["email"].s();
+        std::string googleId = googleData["sub"].s(); // Google'ın benzersiz kullanıcı ID'si
+        std::string name = googleData.has("name") ? std::string(googleData["name"].s()) : "Google User";
+        std::string avatarUrl = googleData.has("picture") ? std::string(googleData["picture"].s()) : "";
+
+        // 3. Kullanıcıyı Veritabanımızda Bul veya Yeni Kayıt Aç
         auto user = db.getUserByGoogleId(googleId);
         std::string userId;
 
         if (!user) {
+            // Sistemi ilk defa Google ile kullanan biri
             if (db.createGoogleUser(name, email, googleId, avatarUrl)) {
                 user = db.getUserByGoogleId(googleId);
             }
         }
 
+        // 4. Kullanıcıya kendi sistemimizin JWT biletini ver
         if (user) {
             userId = user->id;
             db.updateLastSeen(userId);
@@ -73,11 +94,13 @@ void AuthRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
             crow::json::wvalue res;
             res["token"] = Security::generateJwt(userId);
             res["user_id"] = userId;
-            res["message"] = std::string("Google ile giris basarili."); // Explicit cast eklendi
+            res["name"] = name;
+            res["avatar_url"] = avatarUrl;
+            res["message"] = std::string("Google ile guvenli giris basarili.");
             return crow::response(200, res);
         }
 
-        return crow::response(500, "Google Auth Hatasi: Kullanici olusturulamadi veya bulunamadi.");
+        return crow::response(500, "Google Auth Hatasi: Kullanici olusturulamadi.");
             });
 
     // ==========================================================
