@@ -104,16 +104,6 @@ bool DatabaseManager::createUser(std::string name, std::string email, std::strin
     return executeQuery(sql);
 }
 
-bool DatabaseManager::clearChatForUser(std::string userId, std::string channelId) {
-    // 1. Kullanıcıların sohbeti sildiği tarihleri tutan "hayalet" bir tablo oluştur
-    executeQuery("CREATE TABLE IF NOT EXISTS user_cleared_chats (user_id TEXT, channel_id TEXT, cleared_at DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(user_id, channel_id));");
-
-    // 2. Kullanıcının bu sohbeti sildiği anı kaydet (Eski sildiği tarih varsa REPLACE ile günceller)
-    std::string sql = "INSERT OR REPLACE INTO user_cleared_chats (user_id, channel_id, cleared_at) VALUES ('" + userId + "', '" + channelId + "', CURRENT_TIMESTAMP);";
-
-    return executeQuery(sql);
-}
-
 std::optional<User> DatabaseManager::getUser(const std::string& email) {
     sqlite3_stmt* stmt; std::optional<User> user = std::nullopt;
     if (sqlite3_prepare_v2(db, "SELECT ID, Name, Email, Status, IsSystemAdmin, AvatarURL, SubscriptionLevel, SubscriptionExpiresAt, GoogleID FROM Users WHERE Email = ?;", -1, &stmt, nullptr) == SQLITE_OK) {
