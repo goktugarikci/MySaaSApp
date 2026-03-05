@@ -1,7 +1,7 @@
 #include "ServerRoutes.h"
 #include "../utils/Security.h"
 
-void ServerRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
+void ServerRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
 
     // ==========================================================
     // 1. TEMEL SUNUCU İŞLEMLERİ VE LOGLAR

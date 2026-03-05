@@ -1,7 +1,7 @@
 #include "UserRoutes.h"
 #include "../utils/Security.h"
 
-void UserRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
+void UserRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
 
     // ==========================================================
     // 1. KULLANICI PROFİL İŞLEMLERİ

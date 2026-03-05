@@ -1,7 +1,7 @@
 #include "RoleRoutes.h"
 #include "../utils/Security.h"
 
-void RoleRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
+void RoleRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
 
     // ==========================================================
     // 1. SUNUCUDAKİ TÜM ROLLERİ GETİR

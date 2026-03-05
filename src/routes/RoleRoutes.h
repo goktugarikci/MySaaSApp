@@ -2,7 +2,8 @@
 #include "crow.h"
 #include "../db/DatabaseManager.h"
 
+#include <crow/middlewares/cors.h>
 class RoleRoutes {
 public:
-    static void setup(crow::SimpleApp& app, DatabaseManager& db);
+    static void setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db);
 };

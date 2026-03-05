@@ -3,7 +3,7 @@
 #include <fstream>
 #include <filesystem>
 
-void UploadRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
+void UploadRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
 
     // İstemciden gelen dosyaları diske yazar ve URL'sini döndürür
     CROW_ROUTE(app, "/api/upload").methods("POST"_method)

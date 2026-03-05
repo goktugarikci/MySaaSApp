@@ -1,13 +1,24 @@
 {
   "name": "mysaasapp",
-  "version": "1.0.0",
+  "version-string": "0.1.0",
   "dependencies": [
     "crow",
     "sqlite3",
+    "fmt",
     "nlohmann-json",
+    "libdatachannel",
+    "argon2",
     "cpr",
-    "openssl",
+    "glfw3",
+    "opengl",
     "jwt-cpp",
-    "argon2"
+    "picojson",
+    {
+      "name": "imgui",
+      "features": [
+        "glfw-binding",
+        "opengl3-binding"
+      ]
+    }
   ]
 }

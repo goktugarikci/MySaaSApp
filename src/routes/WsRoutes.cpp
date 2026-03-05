@@ -15,7 +15,7 @@ std::unordered_map<std::string, std::unordered_set<std::string>> video_rooms;   
 std::mutex chat_mtx;
 std::unordered_map<crow::websocket::connection*, std::string> chat_user_channels; // connection -> channelId
 
-void WsRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
+void WsRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
 
     // ==========================================================
     // 1. GÖRÜNTÜLÜ VE SESLİ ARAMA SİNYALİZASYONU (ODA DESTEKLİ)

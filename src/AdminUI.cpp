@@ -12,7 +12,7 @@
 
 #include <winsock2.h> 
 #include <windows.h>  
-#include <psapi.h>     
+#include <psapi.h>      
 #include <tlhelp32.h>  
 #pragma comment(linker, "/SUBSYSTEM:windows /ENTRY:mainCRTStartup")
 #pragma comment(lib, "psapi.lib") 
@@ -211,7 +211,6 @@ EndpointDef predefined_endpoints[] = {
     // --- 18. WEBRTC VE GÖRÜNTÜLÜ ARAMA OPTİMİZASYONU ---
     {"GET", "/api/webrtc/ice-servers", "Guncel STUN/TURN (ICE) Sunucularini Getir", ""},
     {"POST", "/api/webrtc/metrics", "Goruntulu Arama Kalite Metriklerini (QoS) Gonder", "{\n  \"channel_id\": \"KANAL_ID\",\n  \"latency\": 120,\n  \"packet_loss\": 1.5,\n  \"resolution\": \"1080p\"\n}"}
-
 };
 
 // =============================================================
@@ -345,14 +344,171 @@ void UpdateHardwareMetrics() {
 }
 
 // =============================================================
-// ASENKRON VERİ ÇEKME
+// ASENKRON VERİ ÇEKME (DÜZELTİLMİŞ VE GÜVENLİ VERSİYON)
 // =============================================================
-void FetchUsersAsync() { if (isFetchingUsers) return; isFetchingUsers = true; std::thread([]() { cpr::Response r = cpr::Get(cpr::Url{ API_BASE_URL + "/api/admin/users" }, cpr::Header{ {"Authorization", jwtToken} }); if (r.status_code == 200) { try { auto j = json::parse(r.text, nullptr, false); if (!j.is_discarded() && j.is_array()) { std::lock_guard<std::mutex> lock(userListMutex); userList.clear(); for (const auto& item : j) { AdminUser u; u.id = item.value("id", "N/A"); u.name = item.value("name", "Unknown"); u.email = item.value("email", "N/A"); u.status = item.value("status", "Offline"); u.role = item.value("is_system_admin", 0) == 1 ? "System Admin" : "User"; int sub = item.value("subscription_level", 0); u.sub_level = (sub == 2) ? "Enterprise" : (sub == 1) ? "Pro" : "Normal"; userList.push_back(u); } } } catch (...) {} } isFetchingUsers = false; }).detach(); }
-void FetchServersAsync() { if (isFetchingServers) return; isFetchingServers = true; std::thread([]() { cpr::Response r = cpr::Get(cpr::Url{ API_BASE_URL + "/api/admin/servers" }, cpr::Header{ {"Authorization", jwtToken} }); if (r.status_code == 200) { try { auto j = json::parse(r.text, nullptr, false); if (!j.is_discarded() && j.is_array()) { std::lock_guard<std::mutex> lock(serverListMutex); serverList.clear(); for (const auto& item : j) { AdminServer s; s.id = item.value("id", "N/A"); s.name = item.value("name", "Unknown"); s.owner_id = item.value("owner_id", "N/A"); s.member_count = item.value("member_count", 0); serverList.push_back(s); } } } catch (...) {} } isFetchingServers = false; }).detach(); }
-void FetchBanListAsync() { if (isFetchingBans) return; isFetchingBans = true; std::thread([]() { cpr::Response r = cpr::Get(cpr::Url{ API_BASE_URL + "/api/admin/banlist" }, cpr::Header{ {"Authorization", jwtToken} }); if (r.status_code == 200) { try { auto j = json::parse(r.text, nullptr, false); if (!j.is_discarded() && j.is_array()) { std::lock_guard<std::mutex> lock(banListMutex); banList.clear(); for (const auto& b : j) { banList.push_back({ b.value("user_id", ""), b.value("reason", ""), b.value("date", "") }); } } } catch (...) {} } isFetchingBans = false; }).detach(); }
-void FetchAuditLogsAsync() { if (isFetchingLogs) return; isFetchingLogs = true; std::thread([]() { cpr::Response r = cpr::Get(cpr::Url{ API_BASE_URL + "/api/admin/logs" }, cpr::Header{ {"Authorization", jwtToken} }); if (r.status_code == 200) { try { auto j = json::parse(r.text, nullptr, false); if (j.is_array()) { std::lock_guard<std::mutex> lock(auditLogMutex); auditLogsList.clear(); for (const auto& l : j) { auditLogsList.push_back({ l.value("id", ""), l.value("user_id", ""), l.value("action", ""), l.value("target", ""), l.value("details", ""), l.value("date", "") }); } } } catch (...) {} } isFetchingLogs = false; }).detach(); }
-void FetchUserStatsAsync(std::string userId) { if (isFetchingStats) return; isFetchingStats = true; { std::lock_guard<std::mutex> lock(statsMutex); activeStatsServers.clear(); activeStatsFriends.clear(); } std::thread([userId]() { cpr::Response r = cpr::Get(cpr::Url{ API_BASE_URL + "/api/admin/users/" + userId + "/servers" }, cpr::Header{ {"Authorization", jwtToken} }); if (r.status_code == 200) { try { auto j = json::parse(r.text, nullptr, false); if (!j.is_discarded() && j.contains("servers") && j["servers"].is_array()) { std::lock_guard<std::mutex> lock(statsMutex); for (const auto& s : j["servers"]) { activeStatsServers.push_back({ s.value("server_id", ""), s.value("server_name", ""), s.value("owner_id", "") }); } } } catch (...) {} } isFetchingStats = false; }).detach(); }
-void FetchServerStatsAsync(std::string serverId) { if (isFetchingServerStats) return; isFetchingServerStats = true; { std::lock_guard<std::mutex> lock(statsMutex); activeServerMembersList.clear(); activeServerLogsList.clear(); } std::thread([serverId]() { cpr::Response r = cpr::Get(cpr::Url{ API_BASE_URL + "/api/admin/servers/" + serverId + "/detailed_members" }, cpr::Header{ {"Authorization", jwtToken} }); if (r.status_code == 200) { try { auto j = json::parse(r.text, nullptr, false); if (!j.is_discarded() && j.contains("members") && j["members"].is_array()) { std::lock_guard<std::mutex> lock(statsMutex); for (const auto& m : j["members"]) { activeServerMembersList.push_back({ m.value("user_id", ""), m.value("name", ""), m.value("status", "Offline") }); } } } catch (...) {} } isFetchingServerStats = false; }).detach(); }
+
+void FetchUsersAsync() {
+    if (isFetchingUsers) return;
+    isFetchingUsers = true;
+    std::thread([]() {
+        cpr::Response r = cpr::Get(cpr::Url{ API_BASE_URL + "/api/admin/users" }, cpr::Header{ {"Authorization", jwtToken} });
+        if (r.status_code == 200) {
+            try {
+                auto j = json::parse(r.text, nullptr, false);
+                if (!j.is_discarded() && j.is_array()) {
+                    std::lock_guard<std::mutex> lock(userListMutex);
+                    userList.clear();
+                    for (const auto& item : j) {
+                        AdminUser u;
+                        u.id = item.value("id", "N/A");
+                        u.name = item.value("name", "Unknown");
+                        u.email = item.value("email", "N/A");
+                        u.status = item.value("status", "Offline");
+                        u.role = item.value("is_system_admin", false) ? "System Admin" : "User";
+                        u.sub_level = item.value("subscription_level", "Normal");
+                        userList.push_back(u);
+                    }
+                }
+            }
+            catch (const std::exception& e) { AddConsoleLog("[HATA] Kullanicilari cekerken hata: " + std::string(e.what())); }
+        }
+        else if (r.status_code == 403) {
+            AddConsoleLog("[UYARI] Oturum suresi dolmus. Lutfen API Test Aracindan 'Login' olun.");
+        }
+        isFetchingUsers = false;
+        }).detach();
+}
+
+void FetchServersAsync() {
+    if (isFetchingServers) return;
+    isFetchingServers = true;
+    std::thread([]() {
+        cpr::Response r = cpr::Get(cpr::Url{ API_BASE_URL + "/api/admin/servers" }, cpr::Header{ {"Authorization", jwtToken} });
+        if (r.status_code == 200) {
+            try {
+                auto j = json::parse(r.text, nullptr, false);
+                if (!j.is_discarded() && j.is_array()) {
+                    std::lock_guard<std::mutex> lock(serverListMutex);
+                    serverList.clear();
+                    for (const auto& item : j) {
+                        AdminServer s;
+                        s.id = item.value("id", "N/A");
+                        s.name = item.value("name", "Unknown");
+                        s.owner_id = item.value("owner_id", "N/A");
+                        s.member_count = item.value("member_count", 0);
+                        serverList.push_back(s);
+                    }
+                }
+            }
+            catch (const std::exception& e) { AddConsoleLog("[HATA] Sunuculari cekerken hata: " + std::string(e.what())); }
+        }
+        isFetchingServers = false;
+        }).detach();
+}
+
+void FetchBanListAsync() {
+    if (isFetchingBans) return;
+    isFetchingBans = true;
+    std::thread([]() {
+        cpr::Response r = cpr::Get(cpr::Url{ API_BASE_URL + "/api/admin/banlist" }, cpr::Header{ {"Authorization", jwtToken} });
+        if (r.status_code == 200) {
+            try {
+                auto j = json::parse(r.text, nullptr, false);
+                if (!j.is_discarded() && j.is_array()) {
+                    std::lock_guard<std::mutex> lock(banListMutex);
+                    banList.clear();
+                    for (const auto& b : j) {
+                        banList.push_back({ b.value("user_id", ""), b.value("reason", ""), b.value("date", "") });
+                    }
+                }
+            }
+            catch (const std::exception& e) { AddConsoleLog("[HATA] Ban listesi cekerken hata: " + std::string(e.what())); }
+        }
+        isFetchingBans = false;
+        }).detach();
+}
+
+void FetchAuditLogsAsync() {
+    if (isFetchingLogs) return;
+    isFetchingLogs = true;
+    std::thread([]() {
+        cpr::Response r = cpr::Get(cpr::Url{ API_BASE_URL + "/api/admin/logs" }, cpr::Header{ {"Authorization", jwtToken} });
+        if (r.status_code == 200) {
+            try {
+                auto j = json::parse(r.text, nullptr, false);
+                if (!j.is_discarded() && j.is_array()) {
+                    std::lock_guard<std::mutex> lock(auditLogMutex);
+                    auditLogsList.clear();
+                    for (const auto& l : j) {
+                        auditLogsList.push_back({
+                            l.value("id", ""),
+                            l.value("user_id", ""),
+                            l.value("action", ""),
+                            l.value("target", ""),
+                            l.value("details", ""),
+                            l.value("date", "")
+                            });
+                    }
+                }
+            }
+            catch (const std::exception& e) { AddConsoleLog("[HATA] Audit loglari cekerken hata: " + std::string(e.what())); }
+        }
+        isFetchingLogs = false;
+        }).detach();
+}
+
+void FetchUserStatsAsync(std::string userId) {
+    if (isFetchingStats) return;
+    isFetchingStats = true;
+    { std::lock_guard<std::mutex> lock(statsMutex); activeStatsServers.clear(); activeStatsFriends.clear(); }
+    std::thread([userId]() {
+        cpr::Response r = cpr::Get(cpr::Url{ API_BASE_URL + "/api/admin/users/" + userId + "/servers" }, cpr::Header{ {"Authorization", jwtToken} });
+        if (r.status_code == 200) {
+            try {
+                auto j = json::parse(r.text, nullptr, false);
+                if (!j.is_discarded() && j.contains("servers") && j["servers"].is_array()) {
+                    std::lock_guard<std::mutex> lock(statsMutex);
+                    for (const auto& s : j["servers"]) {
+                        activeStatsServers.push_back({ s.value("server_id", ""), s.value("server_name", ""), s.value("owner_id", "") });
+                    }
+                }
+            }
+            catch (const std::exception& e) { AddConsoleLog("[HATA] Kullanici istihbarati cekerken hata: " + std::string(e.what())); }
+        }
+        isFetchingStats = false;
+        }).detach();
+}
+
+void FetchServerStatsAsync(std::string serverId) {
+    if (isFetchingServerStats) return;
+    isFetchingServerStats = true;
+    { std::lock_guard<std::mutex> lock(statsMutex); activeServerMembersList.clear(); activeServerLogsList.clear(); }
+    std::thread([serverId]() {
+        cpr::Response r = cpr::Get(cpr::Url{ API_BASE_URL + "/api/admin/servers/" + serverId + "/details" }, cpr::Header{ {"Authorization", jwtToken} });
+        if (r.status_code == 200) {
+            try {
+                auto j = json::parse(r.text, nullptr, false);
+                if (!j.is_discarded()) {
+                    std::lock_guard<std::mutex> lock(statsMutex);
+
+                    if (j.contains("members") && j["members"].is_array()) {
+                        for (const auto& m : j["members"]) {
+                            activeServerMembersList.push_back({ m.value("id", ""), m.value("name", ""), m.value("status", "Offline") });
+                        }
+                    }
+
+                    if (j.contains("logs") && j["logs"].is_array()) {
+                        for (const auto& l : j["logs"]) {
+                            activeServerLogsList.push_back({ l.value("time", ""), l.value("action", ""), l.value("details", "") });
+                        }
+                    }
+                }
+            }
+            catch (const std::exception& e) { AddConsoleLog("[HATA] Sunucu gozetimi cekerken hata: " + std::string(e.what())); }
+        }
+        isFetchingServerStats = false;
+        }).detach();
+}
 
 void SendApiRequest() {
     if (is_api_loading) return; is_api_loading = true; strcpy_s(api_response_buffer, "Islem sunucuya iletiliyor..."); api_last_status = 0;
@@ -363,7 +519,17 @@ void SendApiRequest() {
         cpr::Response r; cpr::Header headers = { {"Authorization", jwtToken}, {"Content-Type", "application/json"} };
         if (method == "GET") r = cpr::Get(cpr::Url{ url }, headers); else if (method == "POST") r = cpr::Post(cpr::Url{ url }, headers, cpr::Body{ body }); else if (method == "PUT") r = cpr::Put(cpr::Url{ url }, headers, cpr::Body{ body }); else if (method == "DELETE") r = cpr::Delete(cpr::Url{ url }, headers);
         std::lock_guard<std::mutex> lock(api_response_mutex); api_last_status = r.status_code;
-        try { auto j = nlohmann::json::parse(r.text); thread_response_temp = j.dump(4); }
+        try {
+            auto j = nlohmann::json::parse(r.text);
+            thread_response_temp = j.dump(4);
+
+            // --- YENİ EKLENEN: OTOMATİK TOKEN YAKALAYICI ---
+            if (r.status_code == 200 && endpoint == "/api/auth/login" && j.contains("token")) {
+                jwtToken = "Bearer " + j["token"].get<std::string>();
+                AddConsoleLog("[SISTEM] Admin yetkisi alindi. Panel kilidi acildi!");
+            }
+            // ------------------------------------------------
+        }
         catch (...) { thread_response_temp = r.text.empty() ? "(Bos yanit)" : r.text; }
         if (r.status_code == 0) thread_response_temp = "Baglanti Hatasi: Sunucu kapali olabilir."; AddConsoleLog("[API YANIT] Status: " + std::to_string(api_last_status) + " -> " + endpoint); new_response_ready = true; is_api_loading = false;
         }).detach();
@@ -408,18 +574,17 @@ void DrawServerControlPanel() {
         std::lock_guard<std::mutex> lock(httpLogMutex);
         for (int i = 0; i < http_traffic_log.size(); i++) {
             std::string& log = http_traffic_log[i];
-            ImVec4 color = ImVec4(0.8f, 0.8f, 0.8f, 1.0f); // Varsayılan renk (Gri/Beyaz)
+            ImVec4 color = ImVec4(0.8f, 0.8f, 0.8f, 1.0f);
 
-            // GELİŞMİŞ HTTP METOT VE DURUM RENKLENDİRMESİ
             if (log.find("Request:") != std::string::npos) {
-                if (log.find(" GET ") != std::string::npos) color = ImVec4(0.3f, 0.8f, 1.0f, 1.0f); // Mavi/Turkuaz
-                else if (log.find(" POST ") != std::string::npos) color = ImVec4(1.0f, 0.8f, 0.2f, 1.0f); // Sarı/Turuncu
-                else if (log.find(" PUT ") != std::string::npos) color = ImVec4(0.8f, 0.4f, 1.0f, 1.0f); // Mor
-                else if (log.find(" DELETE ") != std::string::npos) color = ImVec4(1.0f, 0.4f, 0.4f, 1.0f); // Kırmızı
+                if (log.find(" GET ") != std::string::npos) color = ImVec4(0.3f, 0.8f, 1.0f, 1.0f);
+                else if (log.find(" POST ") != std::string::npos) color = ImVec4(1.0f, 0.8f, 0.2f, 1.0f);
+                else if (log.find(" PUT ") != std::string::npos) color = ImVec4(0.8f, 0.4f, 1.0f, 1.0f);
+                else if (log.find(" DELETE ") != std::string::npos) color = ImVec4(1.0f, 0.4f, 0.4f, 1.0f);
             }
             else if (log.find("Response:") != std::string::npos) {
-                if (log.find(" 200 ") != std::string::npos || log.find(" 201 ") != std::string::npos) color = ImVec4(0.2f, 1.0f, 0.2f, 1.0f); // Yeşil (OK)
-                else if (log.find(" 40") != std::string::npos || log.find(" 50") != std::string::npos) color = ImVec4(1.0f, 0.2f, 0.2f, 1.0f); // Kırmızı (Hata)
+                if (log.find(" 200 ") != std::string::npos || log.find(" 201 ") != std::string::npos) color = ImVec4(0.2f, 1.0f, 0.2f, 1.0f);
+                else if (log.find(" 40") != std::string::npos || log.find(" 50") != std::string::npos) color = ImVec4(1.0f, 0.2f, 0.2f, 1.0f);
             }
 
             ImGui::PushStyleColor(ImGuiCol_Text, color);
@@ -447,7 +612,6 @@ void DrawSystemConsoleWindow() {
             std::string& log = consoleLog[i];
             ImVec4 color = ImVec4(0.8f, 0.8f, 0.8f, 1.0f);
 
-            // KONSOL LOGLARI RENKLENDİRME
             if (log.find("[HATA]") != std::string::npos) color = ImVec4(1.0f, 0.2f, 0.2f, 1.0f);
             else if (log.find("[API ISTEGI]") != std::string::npos) color = ImVec4(1.0f, 0.6f, 0.0f, 1.0f);
             else if (log.find("[API YANIT]") != std::string::npos) color = ImVec4(0.4f, 0.8f, 1.0f, 1.0f);
@@ -514,21 +678,57 @@ void DrawApiTesterWindow() {
 }
 
 void DrawAuditLogsWindow() {
-    if (!show_audit_logs) return; ImGui::SetNextWindowPos(ImVec2(100, 100), ImGuiCond_FirstUseEver); ImGui::SetNextWindowSize(ImVec2(1000, 500), ImGuiCond_FirstUseEver);
+    if (!show_audit_logs) return;
+    ImGui::SetNextWindowPos(ImVec2(100, 100), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(1000, 500), ImGuiCond_FirstUseEver);
+
     if (ImGui::Begin(">> SİSTEM DENETİM GÜNLÜKLERİ (AUDIT LOGS) <<", &show_audit_logs)) {
-        if (ImGui::Button("Loglari Yenile (Refresh)")) FetchAuditLogsAsync(); if (isFetchingLogs) { ImGui::SameLine(); ImGui::TextColored(ImVec4(1, 1, 0, 1), " Sunucudan veriler cekiliyor..."); } ImGui::Spacing();
-        if (ImGui::BeginTable("AuditTable", 5, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable)) {
-            ImGui::TableSetupColumn("Tarih/Saat", ImGuiTableColumnFlags_WidthFixed, 150.0f); ImGui::TableSetupColumn("Kullanici ID", ImGuiTableColumnFlags_WidthFixed, 130.0f); ImGui::TableSetupColumn("Aksiyon", ImGuiTableColumnFlags_WidthFixed, 120.0f); ImGui::TableSetupColumn("Hedef ID", ImGuiTableColumnFlags_WidthFixed, 130.0f); ImGui::TableSetupColumn("Detaylar"); ImGui::TableHeadersRow();
-            std::lock_guard<std::mutex> lock(auditLogMutex);
-            for (int i = 0; i < auditLogsList.size(); i++) {
-                ImGui::TableNextRow(); ImGui::TableSetColumnIndex(0); ImGui::Text("%s", auditLogsList[i].date.c_str());
-                ImGui::TableSetColumnIndex(1); DrawCopyableText(auditLogsList[i].user_id, "Kullanici ID Kopyala", i * 10 + 4001);
-                ImGui::TableSetColumnIndex(2); if (auditLogsList[i].action == "LOGIN") ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.2f, 1.0f), "[LOGIN]"); else if (auditLogsList[i].action.find("DELETE") != std::string::npos) ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "[%s]", auditLogsList[i].action.c_str()); else if (auditLogsList[i].action.find("KICK") != std::string::npos) ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.0f, 1.0f), "[%s]", auditLogsList[i].action.c_str()); else ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "[%s]", auditLogsList[i].action.c_str());
-                ImGui::TableSetColumnIndex(3); std::string targetText = auditLogsList[i].target.empty() ? "-" : auditLogsList[i].target; DrawCopyableText(targetText, "Hedef ID Kopyala", i * 10 + 4002);
-                ImGui::TableSetColumnIndex(4); DrawCopyableText(auditLogsList[i].details, "Detayi Kopyala", i * 10 + 4003);
-            } ImGui::EndTable();
+        if (ImGui::Button("Loglari Yenile (Refresh)")) FetchAuditLogsAsync();
+        if (isFetchingLogs) {
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(1, 1, 0, 1), " Sunucudan veriler cekiliyor...");
         }
-    } ImGui::End();
+        ImGui::Spacing();
+
+        std::vector<SystemLog> localLogs;
+        {
+            std::lock_guard<std::mutex> lock(auditLogMutex);
+            localLogs = auditLogsList;
+        }
+
+        if (ImGui::BeginTable("AuditTable", 5, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable)) {
+            ImGui::TableSetupColumn("Tarih/Saat", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+            ImGui::TableSetupColumn("Kullanici ID", ImGuiTableColumnFlags_WidthFixed, 130.0f);
+            ImGui::TableSetupColumn("Aksiyon", ImGuiTableColumnFlags_WidthFixed, 120.0f);
+            ImGui::TableSetupColumn("Hedef ID", ImGuiTableColumnFlags_WidthFixed, 130.0f);
+            ImGui::TableSetupColumn("Detaylar");
+            ImGui::TableHeadersRow();
+
+            for (int i = 0; i < localLogs.size(); i++) {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::Text("%s", localLogs[i].date.c_str());
+                ImGui::TableSetColumnIndex(1); DrawCopyableText(localLogs[i].user_id, "Kullanici ID Kopyala", i * 10 + 4001);
+                ImGui::TableSetColumnIndex(2);
+
+                if (localLogs[i].action == "LOGIN")
+                    ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.2f, 1.0f), "[LOGIN]");
+                else if (localLogs[i].action.find("DELETE") != std::string::npos)
+                    ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "[%s]", localLogs[i].action.c_str());
+                else if (localLogs[i].action.find("KICK") != std::string::npos)
+                    ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.0f, 1.0f), "[%s]", localLogs[i].action.c_str());
+                else
+                    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "[%s]", localLogs[i].action.c_str());
+
+                ImGui::TableSetColumnIndex(3);
+                std::string targetText = localLogs[i].target.empty() ? "-" : localLogs[i].target;
+                DrawCopyableText(targetText, "Hedef ID Kopyala", i * 10 + 4002);
+                ImGui::TableSetColumnIndex(4);
+                DrawCopyableText(localLogs[i].details, "Detayi Kopyala", i * 10 + 4003);
+            }
+            ImGui::EndTable();
+        }
+    }
+    ImGui::End();
 }
 
 void DrawBanListModal() { if (!show_ban_list) return; ImGui::SetNextWindowPos(ImVec2(1366 / 2 - 350, 768 / 2 - 200), ImGuiCond_FirstUseEver); ImGui::SetNextWindowSize(ImVec2(700, 400), ImGuiCond_FirstUseEver); if (ImGui::Begin("Yasakli Kullanicilar (Ban Listesi)", &show_ban_list)) { if (ImGui::Button("Listeyi Yenile")) FetchBanListAsync(); ImGui::Spacing(); if (ImGui::BeginTable("BanTable", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY)) { ImGui::TableSetupColumn("Kullanici ID"); ImGui::TableSetupColumn("Sebep"); ImGui::TableSetupColumn("Tarih"); ImGui::TableSetupColumn("Islem"); ImGui::TableHeadersRow(); std::lock_guard<std::mutex> lock(banListMutex); for (int i = 0; i < banList.size(); i++) { ImGui::TableNextRow(); ImGui::TableSetColumnIndex(0); DrawCopyableText(banList[i].user_id, "Banli ID Kopyala", i * 10 + 5000); ImGui::TableSetColumnIndex(1); ImGui::Text("%s", banList[i].reason.c_str()); ImGui::TableSetColumnIndex(2); ImGui::Text("%s", banList[i].date.c_str()); ImGui::TableSetColumnIndex(3); std::string btn = "Kaldir##B" + std::to_string(i); if (ImGui::Button(btn.c_str())) ProcessConsoleCommand("unban " + banList[i].user_id); } ImGui::EndTable(); } } ImGui::End(); }
