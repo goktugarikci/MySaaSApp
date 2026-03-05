@@ -1,7 +1,7 @@
 #include "ReportRoutes.h"
 #include "../utils/Security.h"
 
-void ReportRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
+void ReportRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
 
     // ==========================================================
     // 1. KULLANICI ŞİKAYET OLUŞTURMA

@@ -1,7 +1,7 @@
 #include "KanbanRoutes.h"
 #include "../utils/Security.h"
 
-void KanbanRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
+void KanbanRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
 
     // ==========================================================
     // KANBAN PANO VE LİSTE İŞLEMLERİ

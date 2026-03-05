@@ -3,7 +3,7 @@
 #include <crow/json.h>
 #include <cpr/cpr.h>
 
-void AuthRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
+void AuthRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
 
     CROW_ROUTE(app, "/api/auth/login").methods(crow::HTTPMethod::POST)
         ([&db](const crow::request& req) {

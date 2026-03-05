@@ -1,7 +1,7 @@
 #include "MessageRoutes.h"
 #include "../utils/Security.h"
 
-void MessageRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
+void MessageRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
 
     // ==========================================================
     // 1. KANAL / DM MESAJLARINI GETİR (Okuma işlemi çok tekrarlandığı için loglanmaz)

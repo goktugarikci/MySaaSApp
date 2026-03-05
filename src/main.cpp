@@ -1,4 +1,5 @@
 ﻿#include "crow.h"
+#include <crow/middlewares/cors.h> // YENİ: CORS desteği için eklendi
 #include "db/DatabaseManager.h"
 #include "utils/FileManager.h"
 #include <thread>
@@ -52,7 +53,15 @@ int main() {
         std::thread bg_thread(backgroundTasks, &db);
         bg_thread.detach();
 
-        crow::SimpleApp app;
+        // YENİ: CORS destekli Crow uygulaması olarak başlatıyoruz
+        crow::App<crow::CORSHandler> app;
+
+        // --- YENİ: CORS (CROSS-ORIGIN) AYARLARI ---
+        auto& cors = app.get_middleware<crow::CORSHandler>();
+        cors.global()
+            .headers("Origin", "Content-Type", "Accept", "Authorization")
+            .methods("POST"_method, "GET"_method, "OPTIONS"_method, "PUT"_method, "DELETE"_method)
+            .origin("*"); // Geliştirme aşamasında her yerden gelen isteklere izin veriyoruz.
 
         // Bütün API Endpoint'lerini sisteme yüklüyoruz
         AuthRoutes::setup(app, db);

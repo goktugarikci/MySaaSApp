@@ -1,7 +1,7 @@
 #include "PaymentRoutes.h"
 #include "../utils/Security.h"
 
-void PaymentRoutes::setup(crow::SimpleApp& app, DatabaseManager& db) {
+void PaymentRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
 
     // ==========================================================
     // 1. KULLANICININ ÖDEME GEÇMİŞİNİ GETİR
