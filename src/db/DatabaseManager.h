@@ -33,7 +33,7 @@ public:
 
     bool createGoogleUser(const std::string& name, const std::string& email, const std::string& googleId, const std::string& avatarUrl);
     std::optional<User> getUserByGoogleId(const std::string& googleId);
-    bool createUser(const std::string& name, const std::string& email, const std::string& rawPassword, bool isAdmin = false);
+    bool createUser(std::string name, std::string email, std::string password, bool is_system_admin = false, std::string username = "", std::string phone_number = "");
     std::optional<User> getUser(const std::string& email);
     std::optional<User> getUserById(std::string id);
     bool updateUserAvatar(std::string userId, const std::string& avatarUrl);
@@ -141,9 +141,7 @@ public:
     SystemStats getSystemStats();
     std::vector<ServerLog> getSystemLogs(int limit = 100);
     std::vector<Message> getArchivedMessages(int limit = 100);
-    std::vector<User> getAllUsers();
-    bool banUser(std::string userId);
-    bool isSubscriptionActive(std::string userId);
+
     int getUserServerCount(std::string userId);
     bool updateUserSubscription(std::string userId, int level, int durationDays);
     void processKanbanNotifications();
@@ -250,6 +248,11 @@ public:
     bool leaveVoiceChannel(const std::string& channelId, const std::string& userId);
     bool updateVoiceStatus(const std::string& channelId, const std::string& userId, bool isMuted, bool isCameraOn, bool isScreenSharing);
     std::vector<VoiceMember> getVoiceChannelMembers(const std::string& channelId);
+
+    std::vector<User> getAllUsers();
+    bool banUser(std::string userId, const std::string& reason = "Sistem Yasaklamasi");
+    bool unbanUser(std::string userId);
+    bool isSubscriptionActive(std::string userId);
 
     // ==========================================================
     // OPTİMİZASYON: WEBRTC BAĞLANTI VE KALİTE (QoS) METRİKLERİ

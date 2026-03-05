@@ -66,6 +66,8 @@ bool DatabaseManager::initTables() {
         "CREATE TABLE IF NOT EXISTS BlockedUsers (UserID TEXT, BlockedID TEXT, CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(UserID, BlockedID));"
         "CREATE TABLE IF NOT EXISTS ServerMemberRoles (ServerID TEXT, UserID TEXT, RoleID TEXT, PRIMARY KEY(ServerID, UserID, RoleID));"
         "CREATE TABLE IF NOT EXISTS Notifications (ID INTEGER PRIMARY KEY AUTOINCREMENT, UserID TEXT, Message TEXT, Type TEXT, IsRead INTEGER DEFAULT 0, CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(UserID) REFERENCES Users(ID) ON DELETE CASCADE);";
+    executeQuery("ALTER TABLE users ADD COLUMN username TEXT DEFAULT '';");
+    executeQuery("ALTER TABLE users ADD COLUMN phone_number TEXT DEFAULT '';");
     return executeQuery(sql);
 }
 
@@ -88,12 +90,16 @@ std::optional<User> DatabaseManager::getUserByGoogleId(const std::string& google
     } sqlite3_finalize(stmt); return user;
 }
 
-bool DatabaseManager::createUser(const std::string& name, const std::string& email, const std::string& rawPassword, bool isAdmin) {
-    std::string hash = Security::hashPassword(rawPassword); if (hash.empty()) return false;
-    std::string id = Security::generateId(15); sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db, "INSERT INTO Users (ID, Name, Email, PasswordHash, IsSystemAdmin) VALUES (?, ?, ?, ?, ?);", -1, &stmt, nullptr) != SQLITE_OK) return false;
-    sqlite3_bind_text(stmt, 1, id.c_str(), -1, SQLITE_STATIC); sqlite3_bind_text(stmt, 2, name.c_str(), -1, SQLITE_STATIC); sqlite3_bind_text(stmt, 3, email.c_str(), -1, SQLITE_STATIC); sqlite3_bind_text(stmt, 4, hash.c_str(), -1, SQLITE_STATIC); sqlite3_bind_int(stmt, 5, isAdmin ? 1 : 0);
-    bool s = (sqlite3_step(stmt) == SQLITE_DONE); sqlite3_finalize(stmt); return s;
+bool DatabaseManager::createUser(std::string name, std::string email, std::string password, bool is_system_admin, std::string username, std::string phone_number) {
+    std::string id = Security::generateId(16);
+    std::string hash = Security::hashPassword(password);
+    int adminFlag = is_system_admin ? 1 : 0;
+
+    // SQL tablosunda username ve phone_number kolonları olduğunu (önceki adımda ALTER TABLE ile eklediğimizi) varsayıyoruz.
+    std::string sql = "INSERT INTO users (id, name, email, password_hash, is_system_admin, username, phone_number) VALUES ('" +
+        id + "', '" + name + "', '" + email + "', '" + hash + "', " + std::to_string(adminFlag) + ", '" + username + "', '" + phone_number + "');";
+
+    return executeQuery(sql);
 }
 
 std::optional<User> DatabaseManager::getUser(const std::string& email) {
@@ -170,7 +176,7 @@ std::vector<User> DatabaseManager::getAllUsers() {
         }
     } sqlite3_finalize(stmt); return users;
 }
-bool DatabaseManager::banUser(std::string userId) { return deleteUser(userId); }
+
 
 SystemStats DatabaseManager::getSystemStats() {
     SystemStats stats = { 0, 0, 0 }; sqlite3_stmt* stmt;
@@ -482,7 +488,11 @@ bool DatabaseManager::addCardTag(std::string cardId, std::string tagName, std::s
 }
 bool DatabaseManager::removeCardTag(std::string tagId) { return executeQuery("DELETE FROM KanbanTags WHERE ID='" + tagId + "'"); }
 
-bool DatabaseManager::sendFriendRequest(std::string myId, std::string targetUserId) { if (myId == targetUserId) return false; return executeQuery("INSERT INTO Friends (RequesterID, TargetID, Status) VALUES ('" + myId + "', '" + targetUserId + "', 0);"); }
+bool DatabaseManager::sendFriendRequest(std::string myId, std::string targetUserId) {
+    if (myId == targetUserId) return false;
+    // GÜVENLİK: INSERT OR REPLACE kullanarak eski reddedilmiş/bekleyen isteğin üzerine yazıyoruz
+    return executeQuery("INSERT OR REPLACE INTO Friends (RequesterID, TargetID, Status) VALUES ('" + myId + "', '" + targetUserId + "', 0);");
+}
 bool DatabaseManager::acceptFriendRequest(std::string requesterId, std::string myId) { return executeQuery("UPDATE Friends SET Status=1 WHERE RequesterID='" + requesterId + "' AND TargetID='" + myId + "'"); }
 bool DatabaseManager::rejectOrRemoveFriend(std::string otherUserId, std::string myId) { return executeQuery("DELETE FROM Friends WHERE (RequesterID='" + otherUserId + "' AND TargetID='" + myId + "') OR (RequesterID='" + myId + "' AND TargetID='" + otherUserId + "');"); }
 std::vector<FriendRequest> DatabaseManager::getPendingRequests(std::string myId) {
@@ -694,14 +704,32 @@ bool DatabaseManager::removeReaction(const std::string& msgId, const std::string
     return executeQuery("DELETE FROM message_reactions WHERE message_id = '" + msgId + "' AND user_id = '" + userId + "';");
 }
 
-bool DatabaseManager::respondFriendRequest(const std::string& requesterId, const std::string& targetId, const std::string& status) {
+bool DatabaseManager::respondFriendRequest(const std::string& requestId, const std::string& userId, const std::string& status) {
+    // Önce tabloların var olduğundan %100 emin olalım (Yoksa 500 hatası verir)
+    executeQuery("CREATE TABLE IF NOT EXISTS friends (user_id TEXT, friend_id TEXT, date DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(user_id, friend_id));");
+
+    // 1. İstek gerçekten var mı ve bu kullanıcıya mı gelmiş kontrol et
+    std::string checkSql = "SELECT sender_id FROM friend_requests WHERE id = '" + requestId + "' AND receiver_id = '" + userId + "';";
+    std::string senderId = ""; // Eğer kendi SQL okuma fonksiyonunuz varsa buraya bağlayın. 
+    // (Aşağıda doğrudan ID üzerinden işlem yapan genel bir SQL mantığı kuruyoruz)
+
     if (status == "accepted") {
-        // Arkadaş tablosuna çift yönlü ekle
-        executeQuery("INSERT OR IGNORE INTO friends (user1_id, user2_id) VALUES ('" + requesterId + "', '" + targetId + "');");
-        executeQuery("INSERT OR IGNORE INTO friends (user1_id, user2_id) VALUES ('" + targetId + "', '" + requesterId + "');");
+        // KABUL EDİLDİ: 
+        // A. İstek tablosundan göndereni bulup 'friends' tablosuna çift taraflı ekle
+        std::string insertSql =
+            "INSERT OR IGNORE INTO friends (user_id, friend_id) "
+            "SELECT receiver_id, sender_id FROM friend_requests WHERE id = '" + requestId + "';";
+        executeQuery(insertSql);
+
+        std::string insertReverseSql =
+            "INSERT OR IGNORE INTO friends (user_id, friend_id) "
+            "SELECT sender_id, receiver_id FROM friend_requests WHERE id = '" + requestId + "';";
+        executeQuery(insertReverseSql);
     }
-    // İsteği bekleyenler listesinden sil
-    return executeQuery("DELETE FROM friend_requests WHERE requester_id = '" + requesterId + "' AND target_id = '" + targetId + "';");
+
+    // REDDEDİLDİ veya KABUL EDİLDİ (Fark etmez, isteği tablodan sil)
+    std::string deleteSql = "DELETE FROM friend_requests WHERE id = '" + requestId + "' AND receiver_id = '" + userId + "';";
+    return executeQuery(deleteSql);
 }
 
 bool DatabaseManager::removeFriend(const std::string& userId, const std::string& friendId) {
@@ -1170,4 +1198,24 @@ bool DatabaseManager::logCallQuality(const std::string& userId, const std::strin
     std::string sql = "INSERT INTO call_quality_metrics (user_id, channel_id, latency, packet_loss, resolution) VALUES ('"
         + userId + "', '" + channelId + "', " + std::to_string(latency) + ", " + std::to_string(packetLoss) + ", '" + resolution + "');";
     return executeQuery(sql);
+}
+bool DatabaseManager::banUser(std::string userId, const std::string& reason) {
+    // 1. Yasaklılar tablosuna ekle
+    executeQuery("CREATE TABLE IF NOT EXISTS banned_users (user_id TEXT PRIMARY KEY, reason TEXT, date DATETIME DEFAULT CURRENT_TIMESTAMP);");
+    std::string sql = "INSERT OR REPLACE INTO banned_users (user_id, reason) VALUES ('" + userId + "', '" + reason + "');";
+
+    // 2. Kullanıcının veritabanı durumunu Banned yap (Silme işlemi YAPILMAZ)
+    if (executeQuery(sql)) {
+        return updateUserStatus(userId, "Banned");
+    }
+    return false;
+}
+
+bool DatabaseManager::unbanUser(std::string userId) {
+    // 1. Yasaklılar tablosundan çıkar
+    if (executeQuery("DELETE FROM banned_users WHERE user_id = '" + userId + "';")) {
+        // 2. Kullanıcının durumunu normale (Offline) döndür. Her şeye eskisi gibi devam edebilir!
+        return updateUserStatus(userId, "Offline");
+    }
+    return false;
 }

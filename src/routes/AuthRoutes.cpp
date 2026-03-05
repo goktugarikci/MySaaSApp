@@ -5,46 +5,83 @@
 
 void AuthRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
 
+    // KULLANICI GİRİŞİ (LOGIN) VE BAN KONTROLÜ
     CROW_ROUTE(app, "/api/auth/login").methods(crow::HTTPMethod::POST)
         ([&db](const crow::request& req) {
         auto body = crow::json::load(req.body);
-        if (!body) return crow::response(400, "Gecersiz JSON");
-        if (!body.has("email") || !body.has("password")) return crow::response(400, "Eksik bilgi (email ve password gerekli)");
-        std::string email = body["email"].s();
-        std::string password = body["password"].s();
-        std::string userId = db.authenticateUser(email, password);
-        if (!userId.empty()) {
-            db.updateLastSeen(userId);
+        if (!body || !body.has("email") || !body.has("password")) {
+            return crow::response(400, "Eksik bilgi (email ve password gerekli)");
+        }
+
+        std::string email = std::string(body["email"].s());
+        std::string password = std::string(body["password"].s());
+
+        // 1. Şifre doğrulamasını güvenli bir şekilde DatabaseManager'a bırakıyoruz
+        if (db.loginUser(email, password)) {
+
+            // Giriş başarılıysa kullanıcı bilgilerini çek
+            auto user = db.getUser(email);
+            if (!user) return crow::response(500, "Kullanici verisi alinamadi.");
+
+            // 2. 🛡️ BAN KONTROLÜ
+            if (user->status == "Banned") {
+                return crow::response(403, "Hesabiniz sistem kurallarini ihlal ettiginiz icin yasaklanmistir.");
+            }
+
+            // 3. Kullanıcı banlı değilse sisteme giriş yapmasına izin ver
+            db.updateLastSeen(user->id);
+            db.updateUserStatus(user->id, "Online");
 
             crow::json::wvalue res;
-            res["token"] = Security::generateJwt(userId);
-            res["user_id"] = userId;
-            res["message"] = std::string("Giris basarili. Durum: Online"); // Explicit cast eklendi
+            res["token"] = Security::generateJwt(user->id);
+            res["user_id"] = user->id;
+            res["name"] = user->name;
+
+            // HATAYI ÇÖZEN KISIM: User modelinde avatar_url olmadığı için şimdilik boş gönderiyoruz.
+            // İleride "UploadRoutes" yazdığımızda buraya gerçek resmi bağlayacağız.
+            res["avatar_url"] = "";
+
+            res["message"] = "Giris basarili.";
             return crow::response(200, res);
         }
 
-        return crow::response(401, "Gecersiz e-posta veya sifre");
+        return crow::response(401, "Gecersiz e-posta veya sifre.");
             });
 
+    // KULLANICI KAYIT OLMA (REGISTER) - YENİ ÖZELLİKLERLE
     CROW_ROUTE(app, "/api/auth/register").methods(crow::HTTPMethod::POST)
         ([&db](const crow::request& req) {
         auto body = crow::json::load(req.body);
+
+        // 1. JSON geçerli mi ve ZORUNLU alanlar var mı kontrol et
         if (!body || !body.has("name") || !body.has("email") || !body.has("password")) {
-            return crow::response(400, "Eksik bilgi (name, email, password gerekli)");
+            return crow::response(400, "Zorunlu alanlar eksik (name, email, password gerekli).");
         }
 
-        std::string name = body["name"].s();
-        std::string email = body["email"].s();
-        std::string password = body["password"].s();
+        std::string name = std::string(body["name"].s());
+        std::string email = std::string(body["email"].s());
+        std::string password = std::string(body["password"].s());
 
-        bool success = db.createUser(name, email, password);
+        // 2. YENİ EKLENEN: İsteğe bağlı (Optional) alanları güvenli bir şekilde oku
+        // Kullanıcı bu alanları göndermediyse sistem çökmez, boş ("") kabul edilir.
+        std::string username = body.has("username") ? std::string(body["username"].s()) : "";
+        std::string phone_number = body.has("phone_number") ? std::string(body["phone_number"].s()) : "";
 
-        if (success) {
-            return crow::response(201, "Kullanici basariyla kaydedildi.");
+        // 3. E-posta adresi sistemde zaten kayıtlı mı kontrol et (409 Conflict)
+        if (db.getUser(email)) {
+            return crow::response(409, "Bu e-posta adresi zaten kayitli.");
         }
 
-        return crow::response(409, "Bu e-posta adresi zaten kayitli.");
+        // 4. Veritabanına yeni kullanıcıyı kaydet
+        // (Varsayılan olarak is_system_admin = false gönderiyoruz)
+        if (db.createUser(name, email, password, false, username, phone_number)) {
+            return crow::response(201, "Kayit basariyla tamamlandi.");
+        }
+
+        return crow::response(500, "Sunucu hatasi: Kullanici olusturulamadi.");
             });
+
+
     // GOOGLE OAUTH2 GÜVENLİ GİRİŞ (TOKEN DOĞRULAMA)
     CROW_ROUTE(app, "/api/auth/google/callback").methods(crow::HTTPMethod::POST)
         ([&db](const crow::request& req) {
