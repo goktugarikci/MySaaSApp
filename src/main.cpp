@@ -44,11 +44,6 @@ int main() {
         }
         db.initTables();
 
-        // Otomatik Süper Admin Hesabı
-        if (!db.getUser("admin@mysaas.com")) {
-            db.createUser("Sistem Yoneticisi", "admin@mysaas.com", "admin123", true);
-            std::cout << "[BILGI] Varsayilan Super Admin Hesabi Olusturuldu!" << std::endl;
-        }
 
         std::thread bg_thread(backgroundTasks, &db);
         bg_thread.detach();

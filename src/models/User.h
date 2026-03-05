@@ -13,6 +13,8 @@ struct User {
     int subscriptionLevelInt = 0;
     std::string subscriptionExpiresAt;
     std::string googleId;
+    std::string username = "";     // Varsayılan olarak boş
+    std::string phone_number = ""; // Varsayılan olarak boş
 
     // KIRMIZI ÇİZGİYİ ÇÖZEN FONKSİYON
     crow::json::wvalue toJson() const {
@@ -25,6 +27,8 @@ struct User {
         json["avatar_url"] = avatarUrl;
         json["subscription_level"] = subscriptionLevel;
         json["subscription_expires_at"] = subscriptionExpiresAt;
+        json["username"] = username;         // Yeni
+        json["phone_number"] = phone_number; // Yeni
         return json;
     }
 };

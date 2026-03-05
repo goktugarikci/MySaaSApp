@@ -86,14 +86,62 @@ void UserRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
         return crow::response(200, res);
             });
 
+    // ==========================================================
+        // GELEN VE GİDEN ARKADAŞLIK İSTEKLERİNİ GETİR
+        // ==========================================================
     CROW_ROUTE(app, "/api/friends/requests").methods("GET"_method)
         ([&db](const crow::request& req) {
         if (!Security::checkAuth(req, db)) return crow::response(401);
-        auto reqs = db.getPendingRequests(Security::getUserIdFromHeader(req));
+        std::string myId = Security::getUserIdFromHeader(req);
+
         crow::json::wvalue res;
-        for (size_t i = 0; i < reqs.size(); i++) res[i] = reqs[i].toJson();
+        int idx = 0;
+
+        // 1. BIZE GELEN ISTEKLER (Biz TargetID'yiz, RequesterID'nin bilgilerini al)
+        std::string sqlIn = "SELECT U.ID, U.Name, U.Email FROM Users U JOIN Friends F ON U.ID=F.RequesterID WHERE F.TargetID='" + myId + "' AND F.Status=0;";
+        sqlite3_stmt* stmtIn;
+        if (sqlite3_prepare_v2(db.getDb(), sqlIn.c_str(), -1, &stmtIn, nullptr) == SQLITE_OK) {
+            while (sqlite3_step(stmtIn) == SQLITE_ROW) {
+                res[idx]["id"] = reinterpret_cast<const char*>(sqlite3_column_text(stmtIn, 0));
+
+                // İsim veya E-posta null gelirse boş string ata
+                const char* namePtr = reinterpret_cast<const char*>(sqlite3_column_text(stmtIn, 1));
+                res[idx]["name"] = namePtr ? namePtr : "Isimsiz Kullanici";
+
+                const char* emailPtr = reinterpret_cast<const char*>(sqlite3_column_text(stmtIn, 2));
+                res[idx]["email"] = emailPtr ? emailPtr : "E-posta yok";
+
+                res[idx]["type"] = "incoming";
+                idx++;
+            }
+        }
+        sqlite3_finalize(stmtIn);
+
+        // 2. BIZIM GONDERDIGIMIZ ISTEKLER (Biz RequesterID'yiz, TargetID'nin bilgilerini al)
+        std::string sqlOut = "SELECT U.ID, U.Name, U.Email FROM Users U JOIN Friends F ON U.ID=F.TargetID WHERE F.RequesterID='" + myId + "' AND F.Status=0;";
+        sqlite3_stmt* stmtOut;
+        if (sqlite3_prepare_v2(db.getDb(), sqlOut.c_str(), -1, &stmtOut, nullptr) == SQLITE_OK) {
+            while (sqlite3_step(stmtOut) == SQLITE_ROW) {
+                res[idx]["id"] = reinterpret_cast<const char*>(sqlite3_column_text(stmtOut, 0));
+
+                const char* namePtr = reinterpret_cast<const char*>(sqlite3_column_text(stmtOut, 1));
+                res[idx]["name"] = namePtr ? namePtr : "Isimsiz Kullanici";
+
+                const char* emailPtr = reinterpret_cast<const char*>(sqlite3_column_text(stmtOut, 2));
+                res[idx]["email"] = emailPtr ? emailPtr : "E-posta yok";
+
+                res[idx]["type"] = "outgoing";
+                idx++;
+            }
+        }
+        sqlite3_finalize(stmtOut);
+
+        // Eğer liste boşsa boş dizi dön
+        if (idx == 0) return crow::response(200, crow::json::wvalue(crow::json::type::List));
+
         return crow::response(200, res);
             });
+
 
     CROW_ROUTE(app, "/api/friends/request").methods("POST"_method)
         ([&db](const crow::request& req) {
@@ -110,17 +158,42 @@ void UserRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
         return crow::response(400, "Istek gonderilemedi.");
             });
 
-    // ARKADAŞLIK İSTEĞİNİ YANITLA (KABUL/RED) -> Tekil fonksiyon kullanıldı
+    // ==========================================================
+        // ARKADAŞLIK İSTEĞİNİ KABUL ET VEYA REDDET (500 Hatası Çözümü)
+        // ==========================================================
     CROW_ROUTE(app, "/api/friends/requests/<string>").methods("PUT"_method)
-        ([&db](const crow::request& req, std::string requesterId) {
-        if (!Security::checkAuth(req, db)) return crow::response(401);
-        auto x = crow::json::load(req.body);
-        if (!x || !x.has("status")) return crow::response(400); // status: "accepted" veya "rejected"
+        ([&db](const crow::request& req, std::string targetId) {
+        try {
+            if (!Security::checkAuth(req, db)) return crow::response(401);
+            std::string myId = Security::getUserIdFromHeader(req);
 
-        if (db.respondFriendRequest(requesterId, Security::getUserIdFromHeader(req), std::string(x["status"].s()))) {
-            return crow::response(200, "Istek yanitlandi.");
+            // Gelen JSON'ı güvenli oku
+            auto body = crow::json::load(req.body);
+            if (!body) return crow::response(400, "Geçersiz JSON formatı.");
+            if (!body.has("status")) return crow::response(400, "Status parametresi eksik.");
+
+            std::string status = body["status"].s();
+
+            if (status == "accepted") {
+                // İstek Kabul Edildi: Status'u 1 Yap
+                std::string sql = "UPDATE Friends SET Status=1 WHERE RequesterID='" + targetId + "' AND TargetID='" + myId + "';";
+                db.executeQuery(sql);
+                return crow::response(200, "{\"message\": \"Istek kabul edildi\"}");
+            }
+            else if (status == "rejected") {
+                // İstek Reddedildi: Tablodan Sil (Hem gelen hem giden ihtimaline karşı)
+                std::string sql = "DELETE FROM Friends WHERE (RequesterID='" + targetId + "' AND TargetID='" + myId + "') OR (RequesterID='" + myId + "' AND TargetID='" + targetId + "');";
+                db.executeQuery(sql);
+                return crow::response(200, "{\"message\": \"Istek reddedildi\"}");
+            }
+
+            return crow::response(400, "Bilinmeyen status degeri.");
         }
-        return crow::response(500);
+        catch (const std::exception& e) {
+            // Eğer çökerse terminale hatanın sebebini yazdır (Log)
+            std::cerr << "[HATA] PUT /api/friends/requests: " << e.what() << std::endl;
+            return crow::response(500, "Sunucu ic hatasi (Veritabani veya JSON okuma)");
+        }
             });
 
     // ARKADAŞLIKTAN ÇIKAR
