@@ -1,5 +1,6 @@
 #include "AdminRoutes.h"
 #include "../utils/Security.h"
+#include <crow/middlewares/cors.h>
 #include <vector> // Array işlemi için gerekli
 
 void AdminRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
@@ -197,6 +198,36 @@ void AdminRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) 
             return crow::response(200, "Sikayet cozuldu olarak isaretlendi.");
         }
         return crow::response(500);
+            });
+
+    // KULLANICI ABONELİK (STATÜ) YÜKSELTME / DÜŞÜRME (MEVCUT INT MİMARİSİNE UYGUN)
+    CROW_ROUTE(app, "/api/admin/users/<string>/subscription").methods("PUT"_method)
+        ([&db](const crow::request& req, std::string targetUserId) {
+
+        if (!Security::checkAuth(req, db, true)) return crow::response(403, "Bu islem icin Super Admin yetkisi gerekiyor.");
+
+        auto body = crow::json::load(req.body);
+        if (!body || !body.has("level")) {
+            return crow::response(400, "JSON formatinda 'level' (sayi) parametresi eksik. Orn: {\"level\": 1}");
+        }
+
+        // DÜZELTME: Artık string değil, int (sayı) olarak alıyoruz!
+        int newLevel = body["level"].i();
+        int days = body.has("days") ? body["days"].i() : 0;
+        std::string adminId = Security::getUserIdFromHeader(req);
+
+        // Sizin mevcut fonksiyonunuzu çağırıyoruz:
+        if (db.updateUserSubscription(targetUserId, newLevel, days)) {
+
+            std::string logMsg = "Kullanici aboneligi seviye " + std::to_string(newLevel) + " olarak guncellendi.";
+            if (days > 0) logMsg += " (" + std::to_string(days) + " Gun Gecerli)";
+            else logMsg += " (Suresiz / Kalici)";
+
+            db.logAction(adminId, "UPDATE_SUBSCRIPTION", targetUserId, logMsg);
+            return crow::response(200, logMsg);
+        }
+
+        return crow::response(500, "Veritabani isleminde hata olustu.");
             });
 
 }

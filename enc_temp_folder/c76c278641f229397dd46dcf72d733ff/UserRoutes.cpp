@@ -298,23 +298,18 @@ void UserRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
         return crow::response(500, "DM kanali olusturulamadi.");
             });
 
-    // KULLANICININ KENDİ EKRANINDAN SOHBETİ / DM'Yİ SİLMESİ (SOFT DELETE)
+    // DM Geçmişini Silme (Kanalı Kapatma)
     CROW_ROUTE(app, "/api/users/dm/<string>").methods("DELETE"_method)
         ([&db](const crow::request& req, std::string channelId) {
+        if (!Security::checkAuth(req, db)) return crow::response(401);
+        std::string myId = Security::getUserIdFromHeader(req);
 
-        // 1. Kullanıcı giriş yapmış mı?
-        if (!Security::checkAuth(req, db, true)) return crow::response(403, "Yetkisiz islem.");
-        std::string myUserId = Security::getUserIdFromHeader(req);
-
-        // 2. Silme (Gizleme) işlemini uygula
-        if (db.clearChatForUser(myUserId, channelId)) {
-            // İsteğe bağlı: Audit Log'a yazılabilir
-            db.logAction(myUserId, "CLEAR_CHAT", channelId, "Kullanici kendi ekranindan sohbet gecmisini temizledi.");
-
-            return crow::response(200, "Sohbet gecmisi sizin icin temizlendi. (Loglar sunucuda guvendedir).");
+        if (db.deleteChannel(channelId)) {
+            // BİREYSEL SOHBET SİLME LOGU
+            db.logAction(myId, "DELETE_DM_HISTORY", channelId, "Kullanici ozel mesaj (DM) gecmisini sildi.");
+            return crow::response(200, "DM gecmisi temizlendi.");
         }
-
-        return crow::response(500, "Sohbet temizleme islemi basarisiz oldu.");
+        return crow::response(500);
             });
     // ==========================================================
     // V3.0 - AŞAMA 2: KULLANICI NOTLARI VE KAYDEDİLENLER

@@ -22,8 +22,7 @@ public:
     std::mutex logMutex;// Log Dosyası 
     bool executeQuery(const std::string& sql); //Main DB
     bool executeLogQuery(const std::string& query); // Log Dosyası Köprüsü
-    // Mesajlaşma Fonksiyonları
-    bool saveMessage(std::string senderId, std::string targetId, std::string chatType, std::string content);
+
 public:
     DatabaseManager(const std::string& path);
     ~DatabaseManager();
@@ -243,7 +242,7 @@ public:
     // ==========================================================
     // SESLİ KANAL VE YAYIN DURUMU (VOICE & VIDEO PRESENCE)
     // ==========================================================
-    bool clearChatForUser(std::string userId, std::string channelId);
+
 
     struct VoiceMember { std::string user_id, user_name; bool is_muted, is_camera_on, is_screen_sharing = false; };
 
