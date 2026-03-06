@@ -20,6 +20,8 @@ public:
     sqlite3* logDb;// Log Dosyası 
     std::string db_path; //Main DB
     std::mutex logMutex;// Log Dosyası 
+    std::mutex dbMutex;
+    std::mutex logDbMutex;
     bool executeQuery(const std::string& sql); //Main DB
     bool executeLogQuery(const std::string& query); // Log Dosyası Köprüsü
     // Mesajlaşma Fonksiyonları
@@ -148,7 +150,8 @@ public:
     int getUserServerCount(std::string userId);
     bool updateUserSubscription(std::string userId, int level, int durationDays);
     void processKanbanNotifications();
-    std::vector<NotificationDTO> getUserNotifications(const std::string& userId);
+    bool createNotification(std::string userId, std::string type, std::string content, int priority = 0); 
+    std::vector<crow::json::wvalue> getUserNotifications(std::string userId);
     bool markNotificationAsRead(int notifId);
     // ==========================================================
     // YENİ EKLENENLER: ŞİFRE VE DAVET SİSTEMİ FONKSİYONLARI

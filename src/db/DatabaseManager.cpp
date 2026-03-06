@@ -587,9 +587,44 @@ void DatabaseManager::processKanbanNotifications() {
         }
     } sqlite3_finalize(stmt);
 }
-std::vector<NotificationDTO> DatabaseManager::getUserNotifications(const std::string& userId) {
-    std::vector<NotificationDTO> notifs; std::string sql = "SELECT ID, Message, Type, CreatedAt FROM Notifications WHERE UserID = ? AND IsRead = 0 ORDER BY CreatedAt DESC;"; sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) { sqlite3_bind_text(stmt, 1, userId.c_str(), -1, SQLITE_TRANSIENT); while (sqlite3_step(stmt) == SQLITE_ROW) notifs.push_back({ sqlite3_column_int(stmt, 0), SAFE_TEXT(1), SAFE_TEXT(2), SAFE_TEXT(3) }); } sqlite3_finalize(stmt); return notifs;
+bool DatabaseManager::createNotification(std::string userId, std::string type, std::string content, int priority) {
+    std::string notifId = Security::generateId(16);
+
+    // Tek tırnakları SQL hatası vermemesi için güvenli hale getir
+    std::string safeContent = content;
+    size_t pos = 0;
+    while ((pos = safeContent.find("'", pos)) != std::string::npos) { safeContent.replace(pos, 1, "''"); pos += 2; }
+
+    std::string sql = "INSERT INTO notifications (id, user_id, type, content, priority) VALUES ('" +
+        notifId + "', '" + userId + "', '" + type + "', '" + safeContent + "', " + std::to_string(priority) + ");";
+    return executeQuery(sql);
+}
+
+std::vector<crow::json::wvalue> DatabaseManager::getUserNotifications(std::string userId) {
+    std::vector<crow::json::wvalue> list;
+
+    // MİMARİNİN KALBİ BURASI: 
+    // 1. Önce okunmamışları (is_read ASC)
+    // 2. SONRA Yüksek Önceliklileri (priority DESC) 
+    // 3. EN SON Tarihe Göre (created_at DESC) sıralar!
+    std::string sql = "SELECT id, type, content, is_read, priority, created_at FROM notifications WHERE user_id = '" + userId + "' ORDER BY is_read ASC, priority DESC, created_at DESC LIMIT 50;";
+
+    std::lock_guard<std::mutex> lock(dbMutex);
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            crow::json::wvalue n;
+            n["id"] = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+            n["type"] = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+            n["content"] = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+            n["is_read"] = sqlite3_column_int(stmt, 3) == 1;
+            n["priority"] = sqlite3_column_int(stmt, 4);
+            n["created_at"] = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5));
+            list.push_back(std::move(n));
+        }
+        sqlite3_finalize(stmt);
+    }
+    return list;
 }
 bool DatabaseManager::markNotificationAsRead(int notifId) {
     std::string sql = "UPDATE Notifications SET IsRead = 1 WHERE ID = ?;"; sqlite3_stmt* stmt;

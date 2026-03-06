@@ -18,26 +18,38 @@ void MessageRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db
         return crow::response(200, res);
             });
 
-    // ==========================================================
-    // 2. KANALA VEYA DM'E MESAJ GÖNDER VE LOGLA
-    // ==========================================================
+    // KANALA VEYA DM'YE MESAJ GÖNDER (mysaas_logs.db'ye KAYDEDER)
     CROW_ROUTE(app, "/api/channels/<string>/messages").methods("POST"_method)
-        ([&db](const crow::request& req, std::string channelId) {
-        if (!Security::checkAuth(req, db)) return crow::response(401);
-        auto x = crow::json::load(req.body);
-        if (!x || !x.has("content")) return crow::response(400);
+        ([&db](const crow::request& req, std::string targetId) {
 
-        std::string attachmentUrl = x.has("attachment_url") ? std::string(x["attachment_url"].s()) : "";
-        std::string userId = Security::getUserIdFromHeader(req);
-
-        if (db.sendMessage(channelId, userId, std::string(x["content"].s()), attachmentUrl)) {
-
-            // LOG: Yeni Mesaj Gönderimi
-            db.logAction(userId, "SEND_MESSAGE", channelId, "Kullanici bir kanala veya DM'e yeni mesaj gonderdi.");
-
-            return crow::response(201, "Mesaj gonderildi.");
+        // 1. Kullanıcı Giriş Yapmış Mı? (Token Kontrolü)
+        if (!Security::checkAuth(req, db, true)) {
+            return crow::response(403, "Mesaj gondermek icin giris yapmalisiniz.");
         }
-        return crow::response(500);
+        std::string senderId = Security::getUserIdFromHeader(req);
+
+        // 2. JSON Gövdesini (Mesaj İçeriğini) Oku
+        auto body = crow::json::load(req.body);
+        if (!body || !body.has("content")) {
+            return crow::response(400, "Mesaj icerigi ('content') eksik.");
+        }
+
+        std::string content = std::string(body["content"].s());
+
+        std::string chatType = body.has("chat_type") ? std::string(body["chat_type"].s()) : "SERVER";
+
+        if (db.saveMessage(senderId, targetId, chatType, content)) {
+
+            // Başarılı olursa 201 Created döner
+            crow::json::wvalue res;
+            res["status"] = "success";
+            res["message"] = "Mesaj iletildi ve loglandi.";
+            res["sender_id"] = senderId;
+            res["target_id"] = targetId;
+            return crow::response(201, res);
+        }
+
+        return crow::response(500, "Sunucu hatasi: Mesaj veritabanina yazilamadi.");
             });
 
     // ==========================================================
