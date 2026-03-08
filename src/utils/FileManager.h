@@ -2,7 +2,7 @@
 #include <string>
 #include <vector>
 #include <filesystem>
-
+#include <crow/json.h>
 class FileManager {
 public:
     // Dosya türleri
@@ -25,3 +25,7 @@ public:
     // 100 MB kontrolü (100 * 1024 * 1024 byte)
     static const size_t MAX_FILE_SIZE = 104857600;
 };
+// Sınıfınızın public: kısmına eklenecekler
+static std::string getChatFilePath(const std::string& userA, const std::string& userB);
+static bool saveChatMessage(const std::string& userA, const std::string& userB, const crow::json::wvalue& messageObj);
+static crow::json::wvalue getChatHistory(const std::string& userA, const std::string& userB);

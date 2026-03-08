@@ -103,3 +103,40 @@ std::string Security::generateLiveKitToken(const std::string& roomName, const st
 
     return token;
 }
+
+// Mesajı Şifreleme (Metni kilitler)
+std::string Security::encryptMessage(const std::string& plaintext) {
+    std::string key = "MySaaS_Secret_Key_2026!"; // Sistem anahtarınız
+    std::string encrypted = plaintext;
+    for (size_t i = 0; i < plaintext.length(); ++i) {
+        encrypted[i] = plaintext[i] ^ key[i % key.length()];
+    }
+    // NOT: Gerçek bir sistemde burada sonucu Base64'e çeviren bir fonksiyon çağrılır.
+    // Şimdilik ASCII güvenliği için basit bir hex dönüşümü yapalım:
+    std::string hexEnc;
+    const char hexChars[] = "0123456789ABCDEF";
+    for (unsigned char c : encrypted) {
+        hexEnc += hexChars[(c >> 4) & 0xF];
+        hexEnc += hexChars[c & 0xF];
+    }
+    return hexEnc;
+}
+
+// Mesajın Şifresini Çözme (Kilidi açar)
+std::string Security::decryptMessage(const std::string& ciphertext) {
+    std::string key = "MySaaS_Secret_Key_2026!";
+    std::string decrypted = "";
+
+    // Hex'ten normale çevir
+    for (size_t i = 0; i < ciphertext.length(); i += 2) {
+        std::string byteString = ciphertext.substr(i, 2);
+        char byte = (char)strtol(byteString.c_str(), NULL, 16);
+        decrypted += byte;
+    }
+
+    // XOR kilidini aç
+    for (size_t i = 0; i < decrypted.length(); ++i) {
+        decrypted[i] = decrypted[i] ^ key[i % key.length()];
+    }
+    return decrypted;
+}
