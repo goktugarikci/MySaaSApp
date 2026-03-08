@@ -22,8 +22,6 @@ public:
     std::mutex logMutex;// Log Dosyası 
     bool executeQuery(const std::string& sql); //Main DB
     bool executeLogQuery(const std::string& query); // Log Dosyası Köprüsü
-    // Mesajlaşma Fonksiyonları
-    bool saveMessage(std::string senderId, std::string targetId, std::string chatType, std::string content);
 public:
     DatabaseManager(const std::string& path);
     ~DatabaseManager();
@@ -49,7 +47,10 @@ public:
     std::vector<User> searchUsers(const std::string& searchQuery);
     std::string authenticateUser(const std::string& email, const std::string& password);
     bool loginUser(const std::string& email, const std::string& rawPassword);
-
+    // Favori mesaj işlemleri
+    bool saveFavoriteMessage(std::string userId, std::string messageId);
+    // 2. YENİ MESAJ GÖNDERMEK VE LOGLAMAK İÇİN (Yeni 4 parametreli motorumuz)
+    bool saveMessage(std::string senderId, std::string targetId, std::string chatType, std::string content);
     std::string createServer(const std::string& name, std::string ownerId);
     bool deleteServer(std::string serverId);
     std::vector<Server> getUserServers(std::string userId);
@@ -203,7 +204,7 @@ public:
     std::string getUserNote(const std::string& ownerId, const std::string& targetUserId);
 
     // Kaydedilen Mesajlar (Favoriler)
-    bool saveMessage(const std::string& userId, const std::string& messageId);
+
     bool removeSavedMessage(const std::string& userId, const std::string& messageId);
     std::vector<Message> getSavedMessages(const std::string& userId);
 

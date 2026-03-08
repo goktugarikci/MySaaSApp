@@ -254,17 +254,22 @@ void UserRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
         return crow::response(200, res);
             });
 
+    // BİLDİRİMLERİ GETİR (ÖNCELİĞE GÖRE SIRALANMIŞ HALDE)
     CROW_ROUTE(app, "/api/notifications").methods("GET"_method)
         ([&db](const crow::request& req) {
-        if (!Security::checkAuth(req, db)) return crow::response(401);
-        auto notifs = db.getUserNotifications(Security::getUserIdFromHeader(req));
-        crow::json::wvalue res;
-        for (size_t i = 0; i < notifs.size(); i++) {
-            res[i]["id"] = notifs[i].id;
-            res[i]["message"] = notifs[i].message;
-            res[i]["type"] = notifs[i].type;
-            res[i]["created_at"] = notifs[i].created_at;
-        }
+
+        if (!Security::checkAuth(req, db)) return crow::response(401, "Yetkisiz islem.");
+
+        std::string myUserId = Security::getUserIdFromHeader(req);
+
+        // 1. Bildirimleri veritabanından çekiyoruz (Zaten JSON formatında geliyor)
+        auto notifs = db.getUserNotifications(myUserId);
+
+        // 2. FOR DÖNGÜSÜNE GEREK YOK! 
+        // Hazır gelen listeyi (Diziyi) doğrudan JSON objesine aktarıyoruz.
+        crow::json::wvalue res = std::move(notifs);
+
+        // 3. Hatasız bir şekilde arayüze (Frontend) gönderiyoruz.
         return crow::response(200, res);
             });
 
@@ -364,19 +369,6 @@ void UserRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
             return crow::response(200, "Abonelik basariyla iptal edildi. Profiliniz ucretsiz (Free) seviyesine dusuruldu.");
         }
         return crow::response(500);
-            });
-    // ==========================================================
-    // MESAJ GEÇMİŞİNİ GETİR (CORS Hatasını Çözer)
-    // ==========================================================
-    CROW_ROUTE(app, "/api/chat/history/<string>").methods("GET"_method)
-        ([&db](const crow::request& req, std::string targetId) {
-
-        if (!Security::checkAuth(req, db)) return crow::response(401);
-
-        // Şimdilik boş bir JSON listesi döndürerek React'in çökmesini engelliyoruz
-        crow::json::wvalue res = crow::json::wvalue::list();
-
-        return crow::response(200, res);
             });
 
 }

@@ -18,26 +18,41 @@ void MessageRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db
         return crow::response(200, res);
             });
 
-    // ==========================================================
-    // 2. KANALA VEYA DM'E MESAJ GÖNDER VE LOGLA
-    // ==========================================================
+    // KANALA VEYA DM'YE MESAJ GÖNDER (mysaas_logs.db'ye KAYDEDER)
     CROW_ROUTE(app, "/api/channels/<string>/messages").methods("POST"_method)
-        ([&db](const crow::request& req, std::string channelId) {
-        if (!Security::checkAuth(req, db)) return crow::response(401);
-        auto x = crow::json::load(req.body);
-        if (!x || !x.has("content")) return crow::response(400);
+        ([&db](const crow::request& req, std::string targetId) {
 
-        std::string attachmentUrl = x.has("attachment_url") ? std::string(x["attachment_url"].s()) : "";
-        std::string userId = Security::getUserIdFromHeader(req);
-
-        if (db.sendMessage(channelId, userId, std::string(x["content"].s()), attachmentUrl)) {
-
-            // LOG: Yeni Mesaj Gönderimi
-            db.logAction(userId, "SEND_MESSAGE", channelId, "Kullanici bir kanala veya DM'e yeni mesaj gonderdi.");
-
-            return crow::response(201, "Mesaj gonderildi.");
+        if (!Security::checkAuth(req, db, true)) {
+            return crow::response(403, "Mesaj gondermek icin giris yapmalisiniz.");
         }
-        return crow::response(500);
+        std::string senderId = Security::getUserIdFromHeader(req);
+
+        auto body = crow::json::load(req.body);
+        if (!body || !body.has("content")) {
+            return crow::response(400, "Mesaj icerigi ('content') eksik.");
+        }
+
+        std::string content = std::string(body["content"].s());
+        std::string chatType = body.has("chat_type") ? std::string(body["chat_type"].s()) : "SERVER";
+
+        // YENİ 4 PARAMETRELİ KULLANIM BURADA!
+        if (db.saveMessage(senderId, targetId, chatType, content)) {
+
+            // Çevrimdışı bildirimi (Offline Notification) kontrolü
+            if (chatType == "DM") {
+                auto targetUser = db.getUser(targetId);
+                if (targetUser && targetUser->status == "Offline") {
+                    db.createNotification(targetId, "OFFLINE_MESSAGE", "Siz yokken yeni bir mesaj geldi.", 1);
+                }
+            }
+
+            crow::json::wvalue res;
+            res["status"] = "success";
+            res["message"] = "Mesaj iletildi ve loglandi.";
+            return crow::response(201, res);
+        }
+
+        return crow::response(500, "Sunucu hatasi: Mesaj veritabanina yazilamadi.");
             });
 
     // ==========================================================
@@ -179,24 +194,23 @@ void MessageRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db
         }
         return crow::response(500);
             });
-
-    // ==========================================================
-    // V3.0 - AŞAMA 2: KANAL OKUNDU VE TYPING BİLGİSİ
-    // ==========================================================
-
-    // MESAJI KAYDET (FAVORİLERE EKLE/ÇIKAR)
-    CROW_ROUTE(app, "/api/messages/<string>/save").methods("POST"_method, "DELETE"_method)
+    
+    // MESAJI KAYDET (FAVORİLERE EKLE / ÇIKAR)
+    CROW_ROUTE(app, "/api/chat/history/<string>").methods("POST"_method, "DELETE"_method)
         ([&db](const crow::request& req, std::string messageId) {
-        if (!Security::checkAuth(req, db)) return crow::response(401);
+
+        if (!Security::checkAuth(req, db, true)) return crow::response(401, "Giris yapmalisiniz.");
         std::string myId = Security::getUserIdFromHeader(req);
 
+        // Fonksiyon ismini saveFavoriteMessage olarak değiştirdik
         if (req.method == "POST"_method) {
-            if (db.saveMessage(myId, messageId)) return crow::response(200, "Mesaj kaydedildi.");
+            if (db.saveFavoriteMessage(myId, messageId)) return crow::response(200, "Mesaj favorilere kaydedildi.");
         }
-        else {
-            if (db.removeSavedMessage(myId, messageId)) return crow::response(200, "Mesaj kaydedilenlerden cikarildi.");
+        else if (req.method == "DELETE"_method) {
+            if (db.removeSavedMessage(myId, messageId)) return crow::response(200, "Mesaj favorilerden cikarildi.");
         }
-        return crow::response(500);
+
+        return crow::response(500, "Islem basarisiz.");
             });
 
     // OKUNDU BİLGİSİNİ GÜNCELLE
@@ -220,6 +234,44 @@ void MessageRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db
         // İleride buraya WebSocket Broadcast fonksiyonu eklenecek: 
         // WsManager::broadcastTypingEvent(channelId, userId);
         return crow::response(200);
+            });
+    // ==========================================================
+    // MESAJ GEÇMİŞİNİ GETİR (Sohbet Geçmişi Yüklenemedi Hatası Çözümü)
+    // ==========================================================
+    CROW_ROUTE(app, "/api/chat/history/<string>").methods("GET"_method)
+        ([&db](const crow::request& req, std::string targetId) {
+
+        if (!Security::checkAuth(req, db)) return crow::response(401);
+        std::string myId = Security::getUserIdFromHeader(req);
+
+        crow::json::wvalue res;
+        int idx = 0;
+
+        // İki kişi arasındaki tüm mesajları tarihe göre sıralayarak çek
+        std::string sql = "SELECT ID, SenderID, Content, strftime('%H:%M', CreatedAt) FROM Messages "
+            "WHERE (SenderID='" + myId + "' AND TargetID='" + targetId + "') "
+            "   OR (SenderID='" + targetId + "' AND TargetID='" + myId + "') "
+            "ORDER BY CreatedAt ASC;";
+
+        sqlite3_stmt* stmt;
+        if (sqlite3_prepare_v2(db.getDb(), sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+            while (sqlite3_step(stmt) == SQLITE_ROW) {
+                res[idx]["id"] = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+                res[idx]["senderId"] = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+                res[idx]["text"] = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+
+                // Saat bilgisini formatlı al (Eğer NULL ise varsayılan değer ata)
+                const char* timePtr = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
+                res[idx]["timestamp"] = timePtr ? timePtr : "00:00";
+                idx++;
+            }
+        }
+        sqlite3_finalize(stmt);
+
+        // Hiç mesaj yoksa boş dizi dön (Hata vermemesi için type::List kullanıyoruz)
+        if (idx == 0) return crow::response(200, crow::json::wvalue(crow::json::type::List));
+
+        return crow::response(200, res);
             });
 
 }

@@ -954,12 +954,31 @@ std::string DatabaseManager::getUserNote(const std::string& ownerId, const std::
     return note;
 }
 
-bool DatabaseManager::saveMessage(const std::string& userId, const std::string& messageId) {
-    executeQuery("CREATE TABLE IF NOT EXISTS saved_messages (user_id TEXT, message_id TEXT, saved_at DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(user_id, message_id));");
-    std::string sql = "INSERT OR IGNORE INTO saved_messages (user_id, message_id) VALUES ('" + userId + "', '" + messageId + "');";
+bool DatabaseManager::saveFavoriteMessage(std::string userId, std::string messageId) {
+    std::string id = Security::generateId(16);
+    std::string sql = "INSERT INTO saved_messages (id, user_id, message_id) VALUES ('" +
+        id + "', '" + userId + "', '" + messageId + "');";
+
     return executeQuery(sql);
 }
 
+bool DatabaseManager::saveMessage(std::string senderId, std::string targetId, std::string chatType, std::string content) {
+    std::string msgId = Security::generateId(18); // Mesajlara özel 18 haneli ID
+
+    // Tek tırnakları (Örn: Ali'nin) SQL Injection olmaması için çift tırnağa çeviririz
+    std::string safeContent = content;
+    size_t pos = 0;
+    while ((pos = safeContent.find("'", pos)) != std::string::npos) {
+        safeContent.replace(pos, 1, "''");
+        pos += 2;
+    }
+
+    // Mesajları logDb (mysaas_logs.db) içine yazıyoruz
+    std::string sql = "INSERT INTO messages (id, chat_type, target_id, sender_id, content) VALUES ('" +
+        msgId + "', '" + chatType + "', '" + targetId + "', '" + senderId + "', '" + safeContent + "');";
+
+    return executeLogQuery(sql);
+}
 bool DatabaseManager::removeSavedMessage(const std::string& userId, const std::string& messageId) {
     return executeQuery("DELETE FROM saved_messages WHERE user_id = '" + userId + "' AND message_id = '" + messageId + "';");
 }
