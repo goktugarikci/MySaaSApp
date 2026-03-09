@@ -761,6 +761,7 @@ bool DatabaseManager::logServerAction(const std::string& serverId, const std::st
 }
 
 
+
 bool DatabaseManager::removeRoleFromUser(const std::string& serverId, const std::string& userId, const std::string& roleId) {
     return executeQuery("DELETE FROM user_roles WHERE server_id = '" + serverId + "' AND user_id = '" + userId + "' AND role_id = '" + roleId + "';");
 }
