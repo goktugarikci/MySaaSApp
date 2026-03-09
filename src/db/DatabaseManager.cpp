@@ -406,12 +406,8 @@ void DatabaseManager::checkAndRevertExpiredSubscriptions() {
 // Proje derlemesinde "Unresolved External Symbol" (LNK2019) hatası almamak için 
 // .h dosyasında olan ancak henüz içeriği doldurulmamış diğer tüm fonksiyonları döndürüyoruz.
 
-bool DatabaseManager::updateUserDetails(std::string userId, const std::string& name, const std::string& status) { return true; }
 bool DatabaseManager::updateUserSettings(const std::string& userId, const std::string& theme, bool emailNotifs) { return true; }
-std::vector<User> DatabaseManager::searchUsers(const std::string& searchQuery) { return {}; }
 
-std::vector<Server> DatabaseManager::getAllServers() { return {}; }
-std::vector<Server> DatabaseManager::getUserServers(std::string userId) { return {}; }
 std::optional<Server> DatabaseManager::getServerDetails(std::string serverId) { return std::nullopt; }
 int DatabaseManager::getUserServerCount(std::string userId) { return 0; }
 std::string DatabaseManager::getServerSettings(std::string serverId) { return "{}"; }
@@ -420,7 +416,6 @@ bool DatabaseManager::updateServerSettings(std::string serverId, const std::stri
 std::string DatabaseManager::createServerCategory(const std::string& serverId, const std::string& name, int position) { return "CAT_ID"; }
 std::vector<DatabaseManager::ServerCategory> DatabaseManager::getServerCategories(const std::string& serverId) { return {}; }
 bool DatabaseManager::isUserInServer(std::string serverId, std::string userId) { return true; }
-std::vector<ServerMemberDetail> DatabaseManager::getServerMembersDetails(const std::string& serverId) { return {}; }
 bool DatabaseManager::createServerInvite(const std::string& serverId, const std::string& inviterId, const std::string& code) { return true; }
 bool DatabaseManager::sendServerInvite(std::string serverId, std::string inviterId, std::string inviteeId) { return true; }
 bool DatabaseManager::resolveServerInvite(std::string serverId, std::string inviteeId, bool accept) { return true; }
@@ -449,7 +444,6 @@ std::string DatabaseManager::getChannelName(const std::string& channelId) { retu
 bool DatabaseManager::hasChannelAccess(std::string channelId, std::string userId) { return true; }
 bool DatabaseManager::addMemberToChannel(std::string channelId, std::string userId) { return true; }
 bool DatabaseManager::removeMemberFromChannel(std::string channelId, std::string userId) { return true; }
-std::string DatabaseManager::getOrCreateDMChannel(std::string user1Id, std::string user2Id) { return Security::generateId(18); }
 
 std::vector<Message> DatabaseManager::getSavedMessages(const std::string& userId) { return {}; }
 bool DatabaseManager::addThreadReply(const std::string& messageId, const std::string& userId, const std::string& content) { return true; }
@@ -457,20 +451,13 @@ std::vector<Message> DatabaseManager::getThreadReplies(const std::string& messag
 
 int DatabaseManager::getServerKanbanCount(std::string serverId) { return 0; }
 std::vector<KanbanList> DatabaseManager::getKanbanBoard(std::string channelId) { return {}; }
-bool DatabaseManager::createKanbanList(std::string boardChannelId, std::string title) { return true; }
-bool DatabaseManager::updateKanbanList(std::string listId, const std::string& title, int position) { return true; }
-bool DatabaseManager::deleteKanbanList(std::string listId) { return true; }
 std::string DatabaseManager::getServerIdByCardId(std::string cardId) { return ""; }
-bool DatabaseManager::assignUserToCard(std::string cardId, std::string assigneeId) { return true; }
-bool DatabaseManager::updateCardCompletion(std::string cardId, bool isCompleted) { return true; }
-bool DatabaseManager::setCardDeadline(const std::string& cardId, const std::string& date) { return true; }
 std::vector<CardComment> DatabaseManager::getCardComments(std::string cardId) { return {}; }
 bool DatabaseManager::addCardComment(std::string cardId, std::string userId, std::string content) { return true; }
 bool DatabaseManager::deleteCardComment(std::string commentId, std::string userId) { return true; }
 std::vector<CardTag> DatabaseManager::getCardTags(std::string cardId) { return {}; }
 bool DatabaseManager::addCardTag(std::string cardId, std::string tagName, std::string color) { return true; }
 bool DatabaseManager::removeCardTag(std::string tagId) { return true; }
-bool DatabaseManager::addCardLabel(const std::string& cardId, const std::string& text, const std::string& color) { return true; }
 
 std::string DatabaseManager::addChecklistItem(const std::string& cardId, const std::string& content) { return Security::generateId(18); }
 bool DatabaseManager::toggleChecklistItem(const std::string& itemId, bool isCompleted) { return true; }
@@ -507,8 +494,6 @@ bool DatabaseManager::createNotification(std::string userId, std::string type, s
 std::vector<crow::json::wvalue> DatabaseManager::getUserNotifications(std::string userId) { return {}; }
 bool DatabaseManager::markNotificationAsRead(int notifId) { return true; }
 bool DatabaseManager::logServerAction(const std::string& serverId, const std::string& action, const std::string& details) { return true; }
-std::vector<ServerLog> DatabaseManager::getServerLogs(const std::string& serverId) { return {}; }
-SystemStats DatabaseManager::getSystemStats() { return SystemStats(); }
 // ==========================================================
 // ARKADAŞLIK İŞLEMLERİ (GÜVENLİ VE KİLİTLİ MOTORLAR)
 // ==========================================================
@@ -579,4 +564,155 @@ std::optional<User> DatabaseManager::getUserByGoogleId(const std::string& google
 
     if (stmt) sqlite3_finalize(stmt);
     return std::nullopt;
+}
+// ==========================================================
+// ADMIN PANELİ İŞLEMLERİ (GERÇEK SQL)
+// ==========================================================
+SystemStats DatabaseManager::getSystemStats() {
+    std::lock_guard<std::mutex> lock(dbMutex);
+    SystemStats stats = { 0, 0, 0 };
+    sqlite3_stmt* stmt;
+
+    if (sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM users;", -1, &stmt, nullptr) == SQLITE_OK && sqlite3_step(stmt) == SQLITE_ROW)
+        stats.user_count = sqlite3_column_int(stmt, 0);
+    sqlite3_finalize(stmt);
+
+    if (sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM servers;", -1, &stmt, nullptr) == SQLITE_OK && sqlite3_step(stmt) == SQLITE_ROW)
+        stats.server_count = sqlite3_column_int(stmt, 0);
+    sqlite3_finalize(stmt);
+
+    // Mesajlar artık JSON'da olduğu için sistem loglarının (hareketlerin) sayısını döndürüyoruz
+    if (sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM audit_logs;", -1, &stmt, nullptr) == SQLITE_OK && sqlite3_step(stmt) == SQLITE_ROW)
+        stats.message_count = sqlite3_column_int(stmt, 0);
+    sqlite3_finalize(stmt);
+
+    return stats;
+}
+
+// ==========================================================
+// SUNUCU (SERVER) VE KANAL İŞLEMLERİ (GERÇEK SQL)
+// ==========================================================
+std::vector<Server> DatabaseManager::getAllServers() {
+    std::lock_guard<std::mutex> lock(dbMutex);
+    std::vector<Server> servers;
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, "SELECT id, name, owner_id FROM servers;", -1, &stmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            Server s; s.id = SAFE_TEXT(0); s.name = SAFE_TEXT(1); s.owner_id = SAFE_TEXT(2);
+            servers.push_back(s);
+        }
+    }
+    sqlite3_finalize(stmt);
+    return servers;
+}
+
+std::vector<Server> DatabaseManager::getUserServers(std::string userId) {
+    std::lock_guard<std::mutex> lock(dbMutex);
+    std::vector<Server> servers;
+    sqlite3_stmt* stmt;
+    std::string sql = "SELECT s.id, s.name, s.owner_id FROM servers s JOIN server_members sm ON s.id = sm.server_id WHERE sm.user_id = '" + userId + "';";
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            Server s; s.id = SAFE_TEXT(0); s.name = SAFE_TEXT(1); s.owner_id = SAFE_TEXT(2);
+            servers.push_back(s);
+        }
+    }
+    sqlite3_finalize(stmt);
+    return servers;
+}
+
+std::vector<ServerMemberDetail> DatabaseManager::getServerMembersDetails(const std::string& serverId) {
+    std::lock_guard<std::mutex> lock(dbMutex);
+    std::vector<ServerMemberDetail> members;
+    sqlite3_stmt* stmt;
+    std::string sql = "SELECT u.id, u.username, u.status FROM users u JOIN server_members sm ON u.id = sm.user_id WHERE sm.server_id = '" + serverId + "';";
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            ServerMemberDetail m; m.id = SAFE_TEXT(0); m.name = SAFE_TEXT(1); m.status = SAFE_TEXT(2);
+            members.push_back(m);
+        }
+    }
+    sqlite3_finalize(stmt);
+    return members;
+}
+
+std::vector<ServerLog> DatabaseManager::getServerLogs(const std::string& serverId) {
+    std::lock_guard<std::mutex> lock(dbMutex);
+    std::vector<ServerLog> logs;
+    sqlite3_stmt* stmt;
+    std::string sql = "SELECT action_type, details, created_at FROM audit_logs WHERE target_id = '" + serverId + "' ORDER BY created_at DESC LIMIT 50;";
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            ServerLog l; l.action = SAFE_TEXT(0); l.details = SAFE_TEXT(1); l.created_at = SAFE_TEXT(2);
+            logs.push_back(l);
+        }
+    }
+    sqlite3_finalize(stmt);
+    return logs;
+}
+
+// ==========================================================
+// KANBAN VE GÖREV YÖNETİMİ (GERÇEK SQL)
+// ==========================================================
+bool DatabaseManager::createKanbanList(std::string boardChannelId, std::string title) {
+    executeQuery("CREATE TABLE IF NOT EXISTS kanban_lists (id TEXT PRIMARY KEY, channel_id TEXT, title TEXT, position INTEGER DEFAULT 0);");
+    std::string id = Security::generateId(15);
+    return executeQuery("INSERT INTO kanban_lists (id, channel_id, title) VALUES ('" + id + "', '" + boardChannelId + "', '" + title + "');");
+}
+
+bool DatabaseManager::updateKanbanList(std::string listId, const std::string& title, int position) {
+    return executeQuery("UPDATE kanban_lists SET title = '" + title + "', position = " + std::to_string(position) + " WHERE id = '" + listId + "';");
+}
+
+bool DatabaseManager::deleteKanbanList(std::string listId) {
+    executeQuery("DELETE FROM kanban_cards WHERE list_id = '" + listId + "';");
+    return executeQuery("DELETE FROM kanban_lists WHERE id = '" + listId + "';");
+}
+
+bool DatabaseManager::assignUserToCard(std::string cardId, std::string assigneeId) {
+    executeQuery("CREATE TABLE IF NOT EXISTS card_assignees (card_id TEXT, user_id TEXT, UNIQUE(card_id, user_id));");
+    return executeQuery("INSERT OR IGNORE INTO card_assignees (card_id, user_id) VALUES ('" + cardId + "', '" + assigneeId + "');");
+}
+
+bool DatabaseManager::updateCardCompletion(std::string cardId, bool isCompleted) {
+    executeQuery("CREATE TABLE IF NOT EXISTS kanban_cards (id TEXT PRIMARY KEY, list_id TEXT, title TEXT, description TEXT, priority INTEGER, is_completed INTEGER DEFAULT 0, due_date TEXT);");
+    return executeQuery("UPDATE kanban_cards SET is_completed = " + std::to_string(isCompleted ? 1 : 0) + " WHERE id = '" + cardId + "';");
+}
+
+bool DatabaseManager::setCardDeadline(const std::string& cardId, const std::string& date) {
+    return executeQuery("UPDATE kanban_cards SET due_date = '" + date + "' WHERE id = '" + cardId + "';");
+}
+
+bool DatabaseManager::addCardLabel(const std::string& cardId, const std::string& text, const std::string& color) {
+    executeQuery("CREATE TABLE IF NOT EXISTS card_labels (id TEXT PRIMARY KEY, card_id TEXT, text TEXT, color TEXT);");
+    return executeQuery("INSERT INTO card_labels (id, card_id, text, color) VALUES ('" + Security::generateId(10) + "', '" + cardId + "', '" + text + "', '" + color + "');");
+}
+
+// ==========================================================
+// ÖZEL MESAJLAŞMA (DM) VE KULLANICI ARAMA (GERÇEK SQL)
+// ==========================================================
+std::string DatabaseManager::getOrCreateDMChannel(std::string user1Id, std::string user2Id) {
+    // DM Kanalı JSON Dosyasının adını oluşturabilmesi için benzersiz bir ID dönüyoruz
+    std::string first = (user1Id < user2Id) ? user1Id : user2Id;
+    std::string second = (user1Id < user2Id) ? user2Id : user1Id;
+    return "DM_" + first + "_" + second;
+}
+
+std::vector<User> DatabaseManager::searchUsers(const std::string& searchQuery) {
+    std::lock_guard<std::mutex> lock(dbMutex);
+    std::vector<User> users;
+    sqlite3_stmt* stmt;
+    std::string sql = "SELECT id, username, email, avatar_url FROM users WHERE username LIKE '%" + searchQuery + "%' OR email LIKE '%" + searchQuery + "%' LIMIT 20;";
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            User u; u.id = SAFE_TEXT(0); u.name = SAFE_TEXT(1); u.email = SAFE_TEXT(2); u.avatarUrl = SAFE_TEXT(3);
+            users.push_back(u);
+        }
+    }
+    sqlite3_finalize(stmt);
+    return users;
+}
+
+bool DatabaseManager::updateUserDetails(std::string userId, const std::string& name, const std::string& status) {
+    return executeQuery("UPDATE users SET username = '" + name + "', status = '" + status + "' WHERE id = '" + userId + "';");
 }
