@@ -8,6 +8,29 @@
 
 namespace fs = std::filesystem;
 
+// BURASI ÇOK ÖNEMLİ: FileManager:: kısmını unutmayın!
+void FileManager::initDirectories() {
+    try {
+        std::vector<std::string> dirs = {
+            "uploads",
+            "uploads/avatars",
+            "uploads/chats",
+            "uploads/servers",
+            "uploads/kanban",
+            "chat_data"
+        };
+
+        for (const auto& dir : dirs) {
+            if (!fs::exists(dir)) {
+                fs::create_directories(dir);
+            }
+        }
+    }
+    catch (...) {
+        // Hata ayıklama için buraya bir log eklenebilir
+    }
+}
+
 // Mesajı JSON dosyasına şifreli olarak kaydeder
 bool FileManager::saveChatMessage(const std::string& chatContext, const std::string& senderId, const std::string& msgId, const std::string& type, const std::string& encryptedContent, const std::string& mediaPath, bool isServer) {
     try {

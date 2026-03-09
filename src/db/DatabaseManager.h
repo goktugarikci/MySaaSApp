@@ -243,7 +243,8 @@ public:
     // ==========================================================
     // SES KANALLARI VE WEBRTC (LIVEKIT)
     // ==========================================================
-    struct VoiceMember { std::string user_id, user_name; bool is_muted, is_camera_on, is_screen_sharing = false; };
+    // SES KANALLARI VE WEBRTC (LIVEKIT)
+
 
     bool joinVoiceChannel(const std::string& channelId, const std::string& userId);
     bool leaveVoiceChannel(const std::string& channelId, const std::string& userId);

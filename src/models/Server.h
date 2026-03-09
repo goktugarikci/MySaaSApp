@@ -17,7 +17,7 @@ struct Role {
 
 struct Channel {
     std::string id; std::string server_id; std::string name;
-    int type; bool is_private;
+    int type = 0; bool is_private = false;
 
     crow::json::wvalue toJson() const {
         crow::json::wvalue json;

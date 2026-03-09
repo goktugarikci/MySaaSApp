@@ -5,27 +5,39 @@
 void MessageRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
 
     // ==========================================================
-    // 1. KULLANICI: ŞİFRELİ MESAJ GÖNDERME (JSON'A YAZAR)
-    // ==========================================================
+        // 1. KULLANICI: ŞİFRELİ MESAJ GÖNDERME (ESNEK JSON & LOG DESTEKLİ)
+        // ==========================================================
     CROW_ROUTE(app, "/api/chat/<string>/messages").methods("POST"_method)
         ([&db](const crow::request& req, std::string targetId) {
 
-        if (!Security::checkAuth(req, db, false)) return crow::response(401);
+        if (!Security::checkAuth(req, db, false)) {
+            CROW_LOG_WARNING << "[MESAJ HATASI] Yetkisiz erisim. Token gecersiz.";
+            return crow::response(401, "Yetkisiz erisim.");
+        }
 
         std::string senderId = Security::getUserIdFromHeader(req);
         auto body = crow::json::load(req.body);
-        if (!body || !body.has("content")) return crow::response(400);
 
-        std::string rawContent = std::string(body["content"].s());
+        if (!body) {
+            CROW_LOG_ERROR << "[MESAJ HATASI] Gelen JSON formati bozuk: " << req.body;
+            return crow::response(400, "Gecersiz JSON formatı.");
+        }
+
+        // Frontend 'content' veya 'text' gonderebilir, ikisini de kabul et
+        std::string rawContent = "";
+        if (body.has("content")) rawContent = std::string(body["content"].s());
+        else if (body.has("text")) rawContent = std::string(body["text"].s());
+        else {
+            CROW_LOG_ERROR << "[MESAJ HATASI] JSON icinde 'content' veya 'text' bulunamadi.";
+            return crow::response(400, "Mesaj icerigi eksik.");
+        }
+
         std::string contentType = body.has("content_type") ? std::string(body["content_type"].s()) : "text";
-        std::string mediaPath = body.has("media_path") ? std::string(body["media_path"].s()) : "";
         std::string msgId = Security::generateId(18);
-
-        // İçeriği diskte saklamadan önce şifreliyoruz
         std::string encryptedContent = Security::encryptMessage(rawContent);
 
-        // Bağlamı belirle (DM ise alfabetik sıralı context oluştur)
-        bool isServer = targetId.find("dm_") == std::string::npos && targetId.length() > 15; // Basit bir server/DM ayrımı
+        // Bağlam (Context) Belirleme
+        bool isServer = targetId.find("dm_") == std::string::npos && targetId.length() > 15;
         std::string contextId = targetId;
         if (!isServer && targetId.find("dm_") == std::string::npos) {
             std::string u1 = (senderId < targetId) ? senderId : targetId;
@@ -33,14 +45,31 @@ void MessageRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db
             contextId = "dm_" + u1 + "_" + u2;
         }
 
-        if (FileManager::saveChatMessage(contextId, senderId, msgId, contentType, encryptedContent, mediaPath, isServer)) {
-            auto targetUser = db.getUserById(targetId);
-            if (targetUser && targetUser->status == "Offline") {
-                db.createNotification(targetId, "OFFLINE_MESSAGE", "Yeni mesajiniz var.", 1);
+        CROW_LOG_INFO << "[MESAJ] JSON dosyasina yaziliyor... Context: " << contextId;
+
+        if (FileManager::saveChatMessage(contextId, senderId, msgId, contentType, encryptedContent, "", isServer)) {
+
+            // Bildirim Kismi (Sadece DM ise hedefe bildirim at)
+            if (!isServer) {
+                try {
+                    auto targetUser = db.getUserById(targetId);
+                    if (targetUser) { // Kullanıcı bulundu mu kontrolü
+                        if (targetUser->status == "Offline") {
+                            db.createNotification(targetId, "OFFLINE_MESSAGE", "Yeni şifreli mesajınız var.", 1);
+                        }
+                        // DİKKAT: delete targetUser; SATIRI SİLİNDİ! 
+                        // std::optional belleği otomatik temizler, sızıntı yapmaz.
+                    }
+                }
+                catch (...) {
+                    CROW_LOG_ERROR << "[BILDIRIM HATASI] Veritabanina bildirim yazilamadi.";
+                }
             }
-            return crow::response(201, "Mesaj JSON dosyasina mühürlendi.");
+            return crow::response(201, "Mesaj basariyla iletildi ve kaydedildi.");
         }
-        return crow::response(500, "Dosya yazma hatasi.");
+
+        CROW_LOG_ERROR << "[DOSYA HATASI] FileManager " << contextId << ".json dosyasina yazamadi!";
+        return crow::response(500, "Sunucu dosya yazma hatasi.");
             });
 
     // ==========================================================

@@ -45,3 +45,10 @@ struct BannedUserRecord {
     std::string reason;
     std::string date;
 };
+struct VoiceMember {
+    std::string user_id;
+    std::string user_name;
+    bool is_muted = false;          // Varsayılan değer eklendi
+    bool is_camera_on = false;      // Varsayılan değer eklendi
+    bool is_screen_sharing = false;
+};
