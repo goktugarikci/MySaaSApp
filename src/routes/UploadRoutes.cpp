@@ -1,54 +1,97 @@
 #include "UploadRoutes.h"
 #include "../utils/Security.h"
-#include "../utils/FileManager.h"
-#include <fstream>
+#include <crow/multipart.h>
 #include <filesystem>
+#include <fstream>
+#include <chrono>
+
+namespace fs = std::filesystem;
 
 void UploadRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
 
-    // İstemciden gelen dosyaları diske yazar ve URL'sini döndürür
+    // ==========================================================
+    // MERKEZİ MEDYA VE DOSYA YÜKLEME MOTORU (MULTIPART)
+    // ==========================================================
     CROW_ROUTE(app, "/api/upload").methods("POST"_method)
         ([&db](const crow::request& req) {
-        if (!Security::checkAuth(req, db)) return crow::response(401);
 
-        // Uploads klasörü yoksa oluştur
-        if (!std::filesystem::exists("uploads")) {
-            std::filesystem::create_directory("uploads");
+        // 1. Kimlik Doğrulama (Sadece giriş yapmış kullanıcılar dosya yükleyebilir)
+        if (!Security::checkAuth(req, db, false)) return crow::response(401, "Yetkisiz islem.");
+
+        // 2. Gelen verinin 'multipart/form-data' olduğunu doğrula
+        crow::multipart::message file_message(req);
+        if (file_message.parts.empty()) {
+            return crow::response(400, "Dosya verisi bulunamadi veya yanlis format.");
         }
 
-        try {
-            crow::multipart::message file_message(req);
-            auto part = file_message.get_part_by_name("file");
+        std::string uploadType = "general"; // Varsayılan klasör
+        std::string fileContent = "";
+        std::string originalFilename = "unknown_file.bin";
 
-            if (part.body.empty()) return crow::response(400, "Dosya bulunamadi.");
+        // 3. Form parçalarını (form-data) analiz et
+        for (const auto& part : file_message.parts) {
+            auto name_it = part.headers.find("Content-Disposition");
+            if (name_it != part.headers.end()) {
+                std::string header_val = name_it->second.value;
 
-            // Dosya uzantısını belirle (Basit Güvenlik/Tahmin)
-            std::string ext = ".bin";
-            auto cTypeHeader = part.get_header_object("Content-Type");
-            if (cTypeHeader.value.find("image/jpeg") != std::string::npos) ext = ".jpg";
-            else if (cTypeHeader.value.find("image/png") != std::string::npos) ext = ".png";
-            else if (cTypeHeader.value.find("application/pdf") != std::string::npos) ext = ".pdf";
+                // A) Frontend'den gelen 'type' alanı (avatars, chats, kanban)
+                if (header_val.find("name=\"type\"") != std::string::npos) {
+                    uploadType = part.body;
+                }
+                // B) Gerçek dosyanın (file) kendisi
+                else if (header_val.find("name=\"file\"") != std::string::npos) {
+                    fileContent = part.body;
 
-            // Benzersiz bir dosya ismi oluştur
-            std::string fileName = "file_" + Security::generateId(12) + ext;
-            std::string filePath = "uploads/" + fileName;
+                    // Orjinal dosya adını ayıkla
+                    size_t filename_pos = header_val.find("filename=\"");
+                    if (filename_pos != std::string::npos) {
+                        filename_pos += 10;
+                        size_t filename_end = header_val.find("\"", filename_pos);
+                        if (filename_end != std::string::npos) {
+                            originalFilename = header_val.substr(filename_pos, filename_end - filename_pos);
+                        }
+                    }
+                }
+            }
+        }
 
-            // Dosyayı diske yaz (Binary modda)
-            std::ofstream out(filePath, std::ios::binary);
-            if (!out) return crow::response(500, "Dosya diske yazilamadi.");
-            out << part.body;
-            out.close();
+        // 4. Dosya içeriği boş mu kontrol et
+        if (fileContent.empty()) {
+            return crow::response(400, "Gecerli bir dosya yuklenmedi.");
+        }
 
-            // Frontend'e dosyanın erişim linkini dön
+        // 5. Güvenlik: Yalnızca izin verilen klasörlere yazılabilir
+        if (uploadType != "avatars" && uploadType != "chats" && uploadType != "kanban") {
+            uploadType = "general";
+        }
+
+        // 6. Klasör yoksa oluştur (Örn: uploads/chats)
+        std::string directoryPath = "uploads/" + uploadType;
+        if (!fs::exists(directoryPath)) {
+            fs::create_directories(directoryPath);
+        }
+
+        // 7. Çakışmayı önlemek için benzersiz bir dosya adı oluştur (Timestamp + Rastgele ID)
+        auto now = std::chrono::system_clock::now();
+        auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+        std::string uniqueFilename = std::to_string(timestamp) + "_" + Security::generateId(6) + "_" + originalFilename;
+        std::string finalPath = directoryPath + "/" + uniqueFilename;
+
+        // 8. Dosyayı doğrudan diske yaz (RAM'i şişirmeden Binary olarak kaydeder)
+        std::ofstream outFile(finalPath, std::ios::binary);
+        if (outFile.is_open()) {
+            outFile.write(fileContent.data(), fileContent.size());
+            outFile.close();
+
+            // 9. Frontend'e dosyanın erişilebilir URL'sini gönder
             crow::json::wvalue res;
-            res["url"] = "/" + filePath; // Örn: /uploads/file_A1B2C3.png
-            res["message"] = "Dosya basariyla yuklendi.";
+            res["status"] = "success";
+            res["url"] = "/" + finalPath; // Örn: /uploads/chats/1739023_X9A2_video.mp4
+            res["type"] = uploadType;
 
-            return crow::response(201, res);
+            return crow::response(200, res);
         }
-        catch (const std::exception& e) {
-            return crow::response(500, "Upload hatasi: " + std::string(e.what()));
-        }
+
+        return crow::response(500, "Sunucu hatasi: Dosya diske yazilamadi.");
             });
-
 }

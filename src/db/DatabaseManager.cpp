@@ -17,11 +17,15 @@ DatabaseManager::~DatabaseManager() { close(); }
 sqlite3* DatabaseManager::getDb() { return db; }
 
 bool DatabaseManager::open() {
-    std::lock_guard<std::mutex> lock(dbMutex);
+    std::lock_guard<std::mutex> lock(dbMutex); // 1. Kilidi aldık
     if (sqlite3_open(db_path.c_str(), &db) != SQLITE_OK) return false;
 
-    // Yüksek performanslı WAL modu ve Yabancı Anahtar (Foreign Key) aktivasyonu
-    return executeQuery("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;");
+    char* errMsg = nullptr;
+    if (sqlite3_exec(db, "PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;", nullptr, nullptr, &errMsg) != SQLITE_OK) {
+        if (errMsg) sqlite3_free(errMsg);
+        return false;
+    }
+    return true;
 }
 
 void DatabaseManager::close() {
@@ -248,21 +252,6 @@ bool DatabaseManager::createChannel(std::string serverId, std::string name, int 
 
 bool DatabaseManager::deleteChannel(std::string channelId) {
     return executeQuery("DELETE FROM channels WHERE id = '" + channelId + "';");
-}
-
-std::vector<Channel> DatabaseManager::getServerChannels(std::string serverId) {
-    std::lock_guard<std::mutex> lock(dbMutex);
-    std::vector<Channel> channels;
-    sqlite3_stmt* stmt;
-    std::string sql = "SELECT id, name, type FROM channels WHERE server_id = '" + serverId + "' ORDER BY position ASC;";
-    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
-        while (sqlite3_step(stmt) == SQLITE_ROW) {
-            Channel c; c.id = SAFE_TEXT(0); c.name = SAFE_TEXT(1); c.type = sqlite3_column_int(stmt, 2);
-            channels.push_back(c);
-        }
-    }
-    sqlite3_finalize(stmt);
-    return channels;
 }
 
 std::string DatabaseManager::createServerRole(const std::string& serverId, const std::string& name, const std::string& color, int permissions) {
@@ -607,7 +596,7 @@ std::vector<CardComment> DatabaseManager::getCardComments(std::string cardId) {
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, ("SELECT id, user_id, content FROM card_comments WHERE card_id = '" + cardId + "' ORDER BY created_at ASC;").c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
         while (sqlite3_step(stmt) == SQLITE_ROW) {
-            CardComment cc; cc.id = SAFE_TEXT(0); cc.authorId = SAFE_TEXT(1); cc.content = SAFE_TEXT(2);
+            CardComment cc; cc.id = SAFE_TEXT(0); cc.sender_id = SAFE_TEXT(1); cc.content = SAFE_TEXT(2); comments.push_back(cc);
             comments.push_back(cc);
         }
     }
@@ -629,7 +618,7 @@ std::vector<CardTag> DatabaseManager::getCardTags(std::string cardId) {
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, ("SELECT id, text, color FROM card_labels WHERE card_id = '" + cardId + "';").c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
         while (sqlite3_step(stmt) == SQLITE_ROW) {
-            CardTag ct; ct.id = SAFE_TEXT(0); ct.name = SAFE_TEXT(1); ct.color = SAFE_TEXT(2);
+            CardTag ct; ct.id = SAFE_TEXT(0); ct.tag_name = SAFE_TEXT(1); ct.color = SAFE_TEXT(2); tags.push_back(ct);
             tags.push_back(ct);
         }
     }
@@ -974,6 +963,7 @@ std::vector<Channel> DatabaseManager::getServerChannels(std::string serverId) {
     std::vector<Channel> channels;
     sqlite3_stmt* stmt;
     std::string sql = "SELECT id, name, type, position FROM channels WHERE server_id = '" + serverId + "' ORDER BY position ASC;";
+
     if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
         while (sqlite3_step(stmt) == SQLITE_ROW) {
             Channel c;
@@ -1307,4 +1297,9 @@ std::vector<User> DatabaseManager::searchUsers(const std::string& searchQuery) {
 
 bool DatabaseManager::updateUserDetails(std::string userId, const std::string& name, const std::string& status) {
     return executeQuery("UPDATE users SET username = '" + name + "', status = '" + status + "' WHERE id = '" + userId + "';");
+}
+// Eksik kalan 2 parametreli kanal getirme fonksiyonu (Aşırı yükleme / Overload)
+std::vector<Channel> DatabaseManager::getServerChannels(std::string serverId, std::string userId) {
+    // Şimdilik kanalları yetki ayrımı gözetmeksizin doğrudan döndürüyor
+    return getServerChannels(serverId);
 }

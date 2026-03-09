@@ -151,16 +151,7 @@ void AdminRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) 
         return crow::response(200, crow::json::wvalue(list));
             });
 
-    // 9. ŞİKAYETİ ÇÖZÜLDÜ OLARAK İŞARETLE
-    CROW_ROUTE(app, "/api/admin/reports/<string>").methods("PUT"_method)
-        ([&db](const crow::request& req, std::string reportId) {
-        if (!Security::checkAuth(req, db, true)) return crow::response(403);
-        if (db.resolveReport(reportId)) {
-            db.logAction(Security::getUserIdFromHeader(req), "RESOLVE_REPORT", reportId, "Admin bir sikayeti cozume kavusturdu.");
-            return crow::response(200, "Sikayet cozuldu olarak isaretlendi.");
-        }
-        return crow::response(500);
-            });
+
 
     // 10. KULLANICI ABONELİK YÜKSELTME
     CROW_ROUTE(app, "/api/admin/users/<string>/subscription").methods("PUT"_method)

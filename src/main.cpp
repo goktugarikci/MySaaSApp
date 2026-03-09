@@ -71,10 +71,15 @@ int main() {
         RoleRoutes::setup(app, db);
         ReportRoutes::setup(app, db);
 
-        // İstemcilere "uploads" klasöründeki dosyaları (Resim/PDF) gösterebilmek için:
-        CROW_ROUTE(app, "/uploads/<string>")
-            ([](const crow::request& req, crow::response& res, std::string filename) {
-            res.set_static_file_info("uploads/" + filename);
+        CROW_ROUTE(app, "/uploads/<path>")
+            ([](crow::response& res, std::string path) {
+            std::string safePath = "uploads/" + path;
+            if (safePath.find("..") != std::string::npos) {
+                res.code = 403;
+                res.end();
+                return;
+            }
+            res.set_static_file_info(safePath);
             res.end();
                 });
 

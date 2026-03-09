@@ -39,18 +39,35 @@ void UserRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
         return crow::response(500);
             });
 
+    // ==========================================================
+        // GELİŞMİŞ KULLANICI ARAMA (QUERY PARAMS)
+        // ==========================================================
     CROW_ROUTE(app, "/api/users/search").methods("GET"_method)
         ([&db](const crow::request& req) {
-        if (!Security::checkAuth(req, db)) return crow::response(401);
-        char* qParam = req.url_params.get("q");
-        if (!qParam) return crow::response(400, "Arama terimi (q) eksik.");
+        if (!Security::checkAuth(req, db, false)) return crow::response(401);
 
-        std::string query(qParam);
-        if (query.length() < 3) return crow::response(400, "Arama terimi en az 3 karakter olmalidir.");
+        auto query = req.url_params.get("q"); // Genel arama (isim/email)
+        auto statusFilter = req.url_params.get("status"); // Sadece online olanları ara gibi..
 
-        auto users = db.searchUsers(query);
+        if (!query || strlen(query) < 3) return crow::response(400, "Arama terimi en az 3 karakter olmali.");
+
+        // Veritabanı motoruna yeni kriterleri gönderiyoruz
+        auto users = db.searchUsers(std::string(query));
+
         crow::json::wvalue res;
-        for (size_t i = 0; i < users.size(); i++) { res[i] = users[i].toJson(); }
+        int idx = 0;
+        for (const auto& u : users) {
+            // Eğer bir durum filtresi varsa (örn: status=Online), uymayanları atla
+            if (statusFilter && u.status != std::string(statusFilter)) continue;
+
+            res[idx]["id"] = u.id;
+            res[idx]["name"] = u.name;
+            res[idx]["email"] = u.email;
+            res[idx]["status"] = u.status;
+            res[idx]["avatar_url"] = u.avatarUrl;
+            idx++;
+        }
+
         return crow::response(200, res);
             });
 
