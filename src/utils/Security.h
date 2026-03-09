@@ -3,16 +3,16 @@
 #include <random>
 #include "crow.h"
 
-// Döngüsel bağımlılığı önlemek için ön tanımlama
 class DatabaseManager;
 
 class Security {
 public:
-    // Şifreleme metotları
+    static std::string encryptMessage(const std::string& plaintext);
+    static std::string decryptMessage(const std::string& ciphertext);
+
     static std::string hashPassword(const std::string& password);
     static bool verifyPassword(const std::string& password, const std::string& hash);
 
-    // Rastgele ID üretici
     static std::string generateId(int length = 15) {
         const std::string chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
         std::random_device rd;
@@ -23,12 +23,8 @@ public:
         return result;
     }
 
-    // --- JWT VE KİMLİK DOĞRULAMA (AUTH) METOTLARI ---
-    static std::string generateJwt(const std::string& userId); // EKSİK OLAN METOT EKLENDİ
+    static std::string generateJwt(const std::string& userId);
     static bool checkAuth(const crow::request& req, DatabaseManager& db, bool requireAdmin = false);
     static std::string getUserIdFromHeader(const crow::request& req);
-    // LiveKit Medya Sunucusu için Access Token Üretici
     static std::string generateLiveKitToken(const std::string& roomName, const std::string& participantName, const std::string& participantId);
-    static std::string encryptMessage(const std::string& plaintext);
-    static std::string decryptMessage(const std::string& ciphertext);
 };

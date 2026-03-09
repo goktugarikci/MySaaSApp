@@ -5,8 +5,6 @@
 #include <chrono>
 #include <nlohmann/json.hpp>
 
-// PicoJSON kütüphanesini vcpkg.json üzerinden indirdik.
-// Bu yüzden derleyicinin PicoJSON'u engellemesini devre dışı bırakıyoruz:
 #undef JWT_DISABLE_PICOJSON
 #include <jwt-cpp/jwt.h>
 
@@ -48,15 +46,9 @@ std::string Security::getUserIdFromHeader(const crow::request& req) {
     if (authHeader.empty()) return "";
 
     std::string token;
-    if (authHeader.find("Bearer ") == 0) {
-        token = authHeader.substr(7);
-    }
-    else if (authHeader.find("mock-jwt-token-") == 0) {
-        return authHeader.substr(15);
-    }
-    else {
-        return "";
-    }
+    if (authHeader.find("Bearer ") == 0) token = authHeader.substr(7);
+    else if (authHeader.find("mock-jwt-token-") == 0) return authHeader.substr(15);
+    else return "";
 
     try {
         auto decoded = jwt::decode(token);
@@ -65,7 +57,6 @@ std::string Security::getUserIdFromHeader(const crow::request& req) {
             .with_issuer("MySaaSApp");
 
         verifier.verify(decoded);
-
         return decoded.get_payload_claim("user_id").as_string();
     }
     catch (...) {
@@ -79,9 +70,8 @@ bool Security::checkAuth(const crow::request& req, DatabaseManager& db, bool req
     if (userId == "aB3dE7xY9Z1kL0m") return true;
     return requireAdmin ? db.isSystemAdmin(userId) : true;
 }
+
 std::string Security::generateLiveKitToken(const std::string& roomName, const std::string& participantName, const std::string& participantId) {
-    // Canlı ortama geçtiğinizde bu key ve secret değerlerini ortam değişkenlerinden (ENV) veya konfigürasyon dosyasından almalısınız.
-    // LiveKit --dev modunda çalışırken varsayılan olarak bu değerleri kullanır.
     const std::string API_KEY = "devkey";
     const std::string API_SECRET = "secret";
 
@@ -89,52 +79,45 @@ std::string Security::generateLiveKitToken(const std::string& roomName, const st
         .set_issuer(API_KEY)
         .set_subject(participantId)
         .set_type("JWT")
-        .set_id(generateId(12)) // Rastgele bir JTI (Token ID)
+        .set_id(generateId(12))
         .set_issued_at(std::chrono::system_clock::now())
-        .set_expires_at(std::chrono::system_clock::now() + std::chrono::hours(2)) // Token 2 saat geçerli
+        .set_expires_at(std::chrono::system_clock::now() + std::chrono::hours(2))
         .set_payload_claim("name", jwt::claim(participantName))
         .set_payload_claim("video", jwt::claim(nlohmann::json{
             {"room", roomName},
             {"roomJoin", true},
             {"canPublish", true},
             {"canSubscribe", true}
-            }.dump())) // LiveKit'e özel yetki JSON'u
+            }.dump()))
         .sign(jwt::algorithm::hs256{ API_SECRET });
 
     return token;
 }
 
-// Mesajı Şifreleme (Metni kilitler)
 std::string Security::encryptMessage(const std::string& plaintext) {
-    std::string key = "MySaaS_Secret_Key_2026!"; // Sistem anahtarınız
+    std::string key = "MySaaS_Secret_Key_2026!";
     std::string encrypted = plaintext;
-    for (size_t i = 0; i < plaintext.length(); ++i) {
-        encrypted[i] = plaintext[i] ^ key[i % key.length()];
-    }
-    // NOT: Gerçek bir sistemde burada sonucu Base64'e çeviren bir fonksiyon çağrılır.
-    // Şimdilik ASCII güvenliği için basit bir hex dönüşümü yapalım:
     std::string hexEnc;
     const char hexChars[] = "0123456789ABCDEF";
-    for (unsigned char c : encrypted) {
+
+    for (size_t i = 0; i < plaintext.length(); ++i) {
+        unsigned char c = plaintext[i] ^ key[i % key.length()];
         hexEnc += hexChars[(c >> 4) & 0xF];
         hexEnc += hexChars[c & 0xF];
     }
     return hexEnc;
 }
 
-// Mesajın Şifresini Çözme (Kilidi açar)
 std::string Security::decryptMessage(const std::string& ciphertext) {
     std::string key = "MySaaS_Secret_Key_2026!";
     std::string decrypted = "";
 
-    // Hex'ten normale çevir
     for (size_t i = 0; i < ciphertext.length(); i += 2) {
         std::string byteString = ciphertext.substr(i, 2);
         char byte = (char)strtol(byteString.c_str(), NULL, 16);
         decrypted += byte;
     }
 
-    // XOR kilidini aç
     for (size_t i = 0; i < decrypted.length(); ++i) {
         decrypted[i] = decrypted[i] ^ key[i % key.length()];
     }

@@ -3,29 +3,21 @@
 #include <vector>
 #include <filesystem>
 #include <crow/json.h>
+
 class FileManager {
 public:
-    // Dosya türleri
-    enum class FileType {
-        AVATAR,
-        ATTACHMENT
-    };
-
-    // Klasörleri oluşturur (Program açılırken çağırılmalı)
+    enum class FileType { AVATAR, ATTACHMENT };
     static void initDirectories();
-
-    // Dosyayı kaydeder ve erişim URL'sini döner
-    // part_content: Dosyanın ham verisi
-    // filename: Orijinal dosya adı
     static std::string saveFile(const std::string& part_content, const std::string& original_filename, FileType type);
-
-    // Dosyayı okur (Crow'un dosyayı sunması için)
     static std::string readFile(const std::string& filepath);
-
-    // 100 MB kontrolü (100 * 1024 * 1024 byte)
     static const size_t MAX_FILE_SIZE = 104857600;
+
+    // YENİ JSON SOHBET MİMARİSİ FONKSİYONLARI
+    static std::string getChatFilePath(const std::string& userA, const std::string& userB);
+    static bool saveChatMessage(const std::string& userA, const std::string& userB, const std::string& senderId, const std::string& msgId, const std::string& contentType, const std::string& content, const std::string& mediaPath);
+
+    // DÜZELTME: Artık wvalue yerine doğrudan metin (String) dönüyoruz!
+    static std::string getChatHistoryString(const std::string& userA, const std::string& userB);
+    // Mesajı herkesten sil (Geri çek)
+    static bool recallChatMessage(const std::string& userA, const std::string& userB, const std::string& msgId);
 };
-// Sınıfınızın public: kısmına eklenecekler
-static std::string getChatFilePath(const std::string& userA, const std::string& userB);
-static bool saveChatMessage(const std::string& userA, const std::string& userB, const crow::json::wvalue& messageObj);
-static crow::json::wvalue getChatHistory(const std::string& userA, const std::string& userB);
