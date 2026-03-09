@@ -3,18 +3,17 @@
 #include <crow/json.h>
 
 struct FriendRequest {
-    std::string id;
-    std::string name;
-    std::string email;
-    std::string type; // "incoming" veya "outgoing"
+    std::string id;      // <-- EKSİKLER
+    std::string name;    // <-- EKSİKLER
+    std::string email;   // <-- EKSİKLER
+    std::string type;    // <-- incoming veya outgoing
 
-    // JSON dönüşümü için kolaylık
     crow::json::wvalue toJson() const {
-        crow::json::wvalue json;
-        json["id"] = id;
-        json["name"] = name;
-        json["email"] = email;
-        json["type"] = type;
-        return json;
+        crow::json::wvalue j;
+        j["id"] = id;
+        j["name"] = name;
+        j["email"] = email;
+        j["type"] = type;
+        return j;
     }
 };

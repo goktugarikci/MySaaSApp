@@ -1,12 +1,12 @@
 #pragma once
 #include <string>
-#include <crow.h> // JSON dönüşümü için eklendi
+#include <crow/json.h>
 
 struct User {
     std::string id;
     std::string name;
     std::string email;
-    std::string password; // <--- İŞTE EKSİK OLAN VE HATAYI ÇÖZEN SATIR!
+    std::string password; // <-- HATA VEREN EKSİK BUYDU! (VEYA passwordHash)
     std::string status;
     bool isSystemAdmin = false;
     std::string avatarUrl;
@@ -14,23 +14,19 @@ struct User {
     int subscriptionLevelInt = 0;
     std::string subscriptionExpiresAt;
     std::string googleId;
-    std::string username = "";      // Varsayılan olarak boş
-    std::string phone_number = ""; // Varsayılan olarak boş
+    std::string username = "";
+    std::string phone_number = "";
 
-    // KIRMIZI ÇİZGİYİ ÇÖZEN FONKSİYON
     crow::json::wvalue toJson() const {
         crow::json::wvalue json;
         json["id"] = id;
         json["name"] = name;
         json["email"] = email;
-        // DİKKAT: 'password' değişkenini güvenlik sebebiyle JSON içine EKMİYORUZ.
+        // Güvenlik: password JSON'a eklenmez
         json["status"] = status;
         json["is_system_admin"] = isSystemAdmin;
         json["avatar_url"] = avatarUrl;
-        json["subscription_level"] = subscriptionLevel;
-        json["subscription_expires_at"] = subscriptionExpiresAt;
-        json["username"] = username;         // Yeni
-        json["phone_number"] = phone_number; // Yeni
+        json["username"] = username;
         return json;
     }
 };
