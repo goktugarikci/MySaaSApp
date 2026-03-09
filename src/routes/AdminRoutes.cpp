@@ -1,7 +1,7 @@
 #include "AdminRoutes.h"
 #include "../utils/Security.h"
 #include <crow/middlewares/cors.h>
-#include <vector> // Array işlemi için gerekli
+#include <vector>
 
 void AdminRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
 
@@ -17,26 +17,7 @@ void AdminRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) 
         return crow::response(200, res);
             });
 
-    // 2. ARŞİVLENMİŞ MESAJLAR
-    CROW_ROUTE(app, "/api/admin/archives")
-        ([&db](const crow::request& req) {
-        if (!Security::checkAuth(req, db, true)) return crow::response(403);
-        auto archives = db.getArchivedMessages(100);
-
-        std::vector<crow::json::wvalue> list;
-        for (const auto& a : archives) {
-            crow::json::wvalue obj;
-            obj["id"] = a.id;
-            obj["original_channel_id"] = a.original_channel_id;
-            obj["sender_id"] = a.sender_id;
-            obj["content"] = a.content;
-            obj["deleted_at"] = a.deleted_at;
-            list.push_back(std::move(obj));
-        }
-        return crow::response(200, crow::json::wvalue(list));
-            });
-
-    // 3. TÜM SUNUCULARI GETİR (DASHBOARD İÇİN)
+    // 2. TÜM SUNUCULARI GETİR (DASHBOARD İÇİN)
     CROW_ROUTE(app, "/api/admin/servers").methods("GET"_method)
         ([&db](const crow::request& req) {
         if (!Security::checkAuth(req, db, true)) return crow::response(403);
@@ -54,7 +35,7 @@ void AdminRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) 
         return crow::response(200, crow::json::wvalue(list));
             });
 
-    // 4. SUNUCU DETAYLARI
+    // 3. SUNUCU DETAYLARI
     CROW_ROUTE(app, "/api/admin/servers/<string>/details")
         ([&db](const crow::request& req, std::string serverId) {
         if (!Security::checkAuth(req, db, true)) return crow::response(403);
@@ -85,25 +66,7 @@ void AdminRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) 
         return crow::response(200, res);
             });
 
-    // 5. SİSTEM LOGLARI
-    CROW_ROUTE(app, "/api/admin/logs/system").methods("GET"_method)
-        ([&db](const crow::request& req) {
-        if (!Security::checkAuth(req, db, true)) return crow::response(403);
-        auto logs = db.getSystemLogs(100);
-
-        std::vector<crow::json::wvalue> list;
-        for (const auto& l : logs) {
-            crow::json::wvalue obj;
-            obj["id"] = l.id;
-            obj["action"] = l.action;
-            obj["details"] = l.details;
-            obj["created_at"] = l.created_at;
-            list.push_back(std::move(obj));
-        }
-        return crow::response(200, crow::json::wvalue(list));
-            });
-
-    // 6. TÜM KULLANICILARI GETİR (DASHBOARD İÇİN - ASIL DÜZELTİLEN YER)
+    // 4. TÜM KULLANICILARI GETİR (DASHBOARD İÇİN)
     CROW_ROUTE(app, "/api/admin/users").methods("GET"_method)
         ([&db](const crow::request& req) {
         if (!Security::checkAuth(req, db, true)) return crow::response(403);
@@ -116,7 +79,7 @@ void AdminRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) 
         return crow::response(200, crow::json::wvalue(list));
             });
 
-    // 7. KULLANICIYI BANLA (YASAKLA) - GÜVENLİ VERSİYON
+    // 5. KULLANICIYI BANLA (YASAKLA)
     CROW_ROUTE(app, "/api/admin/ban").methods("POST"_method)
         ([&db](const crow::request& req) {
         if (!Security::checkAuth(req, db, true)) return crow::response(403);
@@ -126,7 +89,6 @@ void AdminRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) 
         std::string targetId = std::string(x["user_id"].s());
         std::string adminId = Security::getUserIdFromHeader(req);
 
-        // Yeni güvenli Ban fonksiyonunu çağırıyoruz
         if (db.banUser(targetId, "Sistem Yoneticisi Yasaklamasi")) {
             db.logAction(adminId, "BAN_USER", targetId, "Sistem yoneticisi bir kullaniciyi yasakladi.");
             return crow::response(200, "Kullanici yasaklandi. Verileri güvende.");
@@ -134,7 +96,7 @@ void AdminRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) 
         return crow::response(500, "Yasaklama isleminde hata.");
             });
 
-    // 8. KULLANICI BANINI AÇ (UNBAN) - GÜVENLİ VERSİYON
+    // 6. KULLANICI BANINI AÇ (UNBAN)
     CROW_ROUTE(app, "/api/admin/unban").methods("POST"_method)
         ([&db](const crow::request& req) {
         if (!Security::checkAuth(req, db, true)) return crow::response(403);
@@ -144,7 +106,6 @@ void AdminRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) 
         std::string targetId = std::string(x["user_id"].s());
         std::string adminId = Security::getUserIdFromHeader(req);
 
-        // Yeni güvenli Unban fonksiyonunu çağırıyoruz
         if (db.unbanUser(targetId)) {
             db.logAction(adminId, "UNBAN_USER", targetId, "Sistem yoneticisi kullanici yasagini kaldirildi.");
             return crow::response(200, "Yasak kaldirildi. Kullanici sistemine geri donebilir.");
@@ -152,7 +113,7 @@ void AdminRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) 
         return crow::response(500, "Yasak kaldirma isleminde hata.");
             });
 
-    // 9. YASAKLI KULLANICILARI (BANLIST) GETİR
+    // 7. YASAKLI KULLANICILARI (BANLIST) GETİR
     CROW_ROUTE(app, "/api/admin/banlist").methods("GET"_method)
         ([&db](const crow::request& req) {
         if (!Security::checkAuth(req, db, true)) return crow::response(403);
@@ -169,11 +130,12 @@ void AdminRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) 
         return crow::response(200, crow::json::wvalue(list));
             });
 
-    // 10. SISTEM LOGLARINI (AUDIT TRAIL) GETIR
+    // 8. SISTEM LOGLARINI (AUDIT TRAIL) GETIR (DÜZELTİLDİ!)
     CROW_ROUTE(app, "/api/admin/logs").methods("GET"_method)
         ([&db](const crow::request& req) {
         if (!Security::checkAuth(req, db, true)) return crow::response(403);
 
+        // getSystemLogs yerine getAuditLogs kullanılıyor
         auto logs = db.getAuditLogs(300);
         std::vector<crow::json::wvalue> list;
         for (const auto& l : logs) {
@@ -189,10 +151,10 @@ void AdminRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) 
         return crow::response(200, crow::json::wvalue(list));
             });
 
-    // 11. ŞİKAYETİ ÇÖZÜLDÜ (KAPATILDI) OLARAK İŞARETLE
+    // 9. ŞİKAYETİ ÇÖZÜLDÜ OLARAK İŞARETLE
     CROW_ROUTE(app, "/api/admin/reports/<string>").methods("PUT"_method)
         ([&db](const crow::request& req, std::string reportId) {
-        if (!Security::checkAuth(req, db, true)) return crow::response(403); // Sadece admin
+        if (!Security::checkAuth(req, db, true)) return crow::response(403);
         if (db.resolveReport(reportId)) {
             db.logAction(Security::getUserIdFromHeader(req), "RESOLVE_REPORT", reportId, "Admin bir sikayeti cozume kavusturdu.");
             return crow::response(200, "Sikayet cozuldu olarak isaretlendi.");
@@ -200,25 +162,21 @@ void AdminRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) 
         return crow::response(500);
             });
 
-    // KULLANICI ABONELİK (STATÜ) YÜKSELTME / DÜŞÜRME (MEVCUT INT MİMARİSİNE UYGUN)
+    // 10. KULLANICI ABONELİK YÜKSELTME
     CROW_ROUTE(app, "/api/admin/users/<string>/subscription").methods("PUT"_method)
         ([&db](const crow::request& req, std::string targetUserId) {
-
         if (!Security::checkAuth(req, db, true)) return crow::response(403, "Bu islem icin Super Admin yetkisi gerekiyor.");
 
         auto body = crow::json::load(req.body);
         if (!body || !body.has("level")) {
-            return crow::response(400, "JSON formatinda 'level' (sayi) parametresi eksik. Orn: {\"level\": 1}");
+            return crow::response(400, "JSON formatinda 'level' (sayi) parametresi eksik.");
         }
 
-        // DÜZELTME: Artık string değil, int (sayı) olarak alıyoruz!
         int newLevel = body["level"].i();
         int days = body.has("days") ? body["days"].i() : 0;
         std::string adminId = Security::getUserIdFromHeader(req);
 
-        // Sizin mevcut fonksiyonunuzu çağırıyoruz:
         if (db.updateUserSubscription(targetUserId, newLevel, days)) {
-
             std::string logMsg = "Kullanici aboneligi seviye " + std::to_string(newLevel) + " olarak guncellendi.";
             if (days > 0) logMsg += " (" + std::to_string(days) + " Gun Gecerli)";
             else logMsg += " (Suresiz / Kalici)";
@@ -226,8 +184,6 @@ void AdminRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) 
             db.logAction(adminId, "UPDATE_SUBSCRIPTION", targetUserId, logMsg);
             return crow::response(200, logMsg);
         }
-
         return crow::response(500, "Veritabani isleminde hata olustu.");
             });
-
 }

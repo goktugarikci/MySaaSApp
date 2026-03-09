@@ -6,6 +6,7 @@ struct User {
     std::string id;
     std::string name;
     std::string email;
+    std::string password; // <--- İŞTE EKSİK OLAN VE HATAYI ÇÖZEN SATIR!
     std::string status;
     bool isSystemAdmin = false;
     std::string avatarUrl;
@@ -13,7 +14,7 @@ struct User {
     int subscriptionLevelInt = 0;
     std::string subscriptionExpiresAt;
     std::string googleId;
-    std::string username = "";     // Varsayılan olarak boş
+    std::string username = "";      // Varsayılan olarak boş
     std::string phone_number = ""; // Varsayılan olarak boş
 
     // KIRMIZI ÇİZGİYİ ÇÖZEN FONKSİYON
@@ -22,6 +23,7 @@ struct User {
         json["id"] = id;
         json["name"] = name;
         json["email"] = email;
+        // DİKKAT: 'password' değişkenini güvenlik sebebiyle JSON içine EKMİYORUZ.
         json["status"] = status;
         json["is_system_admin"] = isSystemAdmin;
         json["avatar_url"] = avatarUrl;

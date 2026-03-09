@@ -50,35 +50,5 @@ void UploadRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db)
             return crow::response(500, "Upload hatasi: " + std::string(e.what()));
         }
             });
-    // ==========================================================
-    // 9. DOSYA / MEDYA YÜKLEME (1. AŞAMA)
-    // ==========================================================
-    CROW_ROUTE(app, "/api/chat/upload").methods("POST"_method)
-        ([&db](const crow::request& req) {
 
-        if (!Security::checkAuth(req, db, true)) return crow::response(401);
-
-        // JSON içinde base64 veya raw byte olarak geldiğini varsayıyoruz
-        auto body = crow::json::load(req.body);
-        if (!body || !body.has("file_data") || !body.has("filename")) {
-            return crow::response(400, "Eksik dosya verisi.");
-        }
-
-        std::string fileData = body["file_data"].s(); // Dosyanın ham hali
-        std::string fileName = body["filename"].s();  // Örn: tatil.mp4
-
-        try {
-            // FileManager dosyamızdaki saveFile metodunu kullanarak diske kaydediyoruz
-            std::string fileUrl = FileManager::saveFile(fileData, fileName, FileManager::FileType::ATTACHMENT);
-
-            // URL'yi Frontend'e geri dönüyoruz
-            crow::json::wvalue res;
-            res["status"] = "success";
-            res["media_path"] = fileUrl; // Örn: /uploads/attachments/123456_789.mp4
-            return crow::response(201, res);
-        }
-        catch (const std::exception& e) {
-            return crow::response(500, e.what());
-        }
-            });
 }

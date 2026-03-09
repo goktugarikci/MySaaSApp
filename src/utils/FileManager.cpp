@@ -59,7 +59,7 @@ std::string FileManager::readFile(const std::string& filepath) {
     return oss.str();
 }
 
-// İki kullanıcı için benzersiz, alfabetik bir dosya adı üretir
+
 std::string FileManager::getChatFilePath(const std::string& userA, const std::string& userB) {
     std::string first = (userA < userB) ? userA : userB;
     std::string second = (userA < userB) ? userB : userA;
@@ -67,7 +67,6 @@ std::string FileManager::getChatFilePath(const std::string& userA, const std::st
     return "chat_data/chat_" + first + "_" + second + ".json";
 }
 
-// JSON dosyasına yeni şifreli mesajı ekler
 bool FileManager::saveChatMessage(const std::string& userA, const std::string& userB, const std::string& senderId, const std::string& msgId, const std::string& contentType, const std::string& content, const std::string& mediaPath) {
     std::string filePath = getChatFilePath(userA, userB);
     std::vector<crow::json::wvalue> newArray;
@@ -75,14 +74,11 @@ bool FileManager::saveChatMessage(const std::string& userA, const std::string& u
     if (fs::exists(filePath)) {
         std::ifstream inFile(filePath);
         if (inFile.is_open()) {
-            std::stringstream buffer;
-            buffer << inFile.rdbuf();
+            std::stringstream buffer; buffer << inFile.rdbuf();
             auto parsed = crow::json::load(buffer.str());
             inFile.close();
             if (parsed && parsed.t() == crow::json::type::List) {
-                for (const auto& item : parsed) {
-                    newArray.push_back(crow::json::wvalue(item));
-                }
+                for (const auto& item : parsed) newArray.push_back(crow::json::wvalue(item));
             }
         }
     }
@@ -93,10 +89,9 @@ bool FileManager::saveChatMessage(const std::string& userA, const std::string& u
     newMsg["content_type"] = contentType;
     newMsg["content"] = content;
     newMsg["media_path"] = mediaPath;
-    newMsg["timestamp"] = "2026-03-08 20:30:00";
+    newMsg["timestamp"] = "2026-03-09 14:30:00";
     newMsg["is_read"] = false;
     newMsg["is_recalled"] = false;
-
     newArray.push_back(std::move(newMsg));
 
     std::ofstream outFile(filePath, std::ios::trunc);
@@ -108,28 +103,25 @@ bool FileManager::saveChatMessage(const std::string& userA, const std::string& u
     return false;
 }
 
-// DÜZELTME: Dosyayı doğrudan metin olarak okur ve döndürür (Çok daha hızlıdır)
+// E2291 ÇÖZÜMÜ: Dosyayı düz metin olarak okur
 std::string FileManager::getChatHistoryString(const std::string& userA, const std::string& userB) {
     std::string filePath = getChatFilePath(userA, userB);
     if (fs::exists(filePath)) {
         std::ifstream inFile(filePath);
         if (inFile.is_open()) {
-            std::stringstream buffer;
-            buffer << inFile.rdbuf();
+            std::stringstream buffer; buffer << inFile.rdbuf();
             return buffer.str();
         }
     }
-    return "[]"; // Dosya yoksa boş liste döner
+    return "[]";
 }
-// Mesajı dosyada bulur, içeriğini yok eder ve "silindi" olarak işaretler
+
 bool FileManager::recallChatMessage(const std::string& userA, const std::string& userB, const std::string& msgId) {
     std::string filePath = getChatFilePath(userA, userB);
     if (!fs::exists(filePath)) return false;
 
-    // Dosyayı oku
     std::ifstream inFile(filePath);
-    std::stringstream buffer;
-    buffer << inFile.rdbuf();
+    std::stringstream buffer; buffer << inFile.rdbuf();
     inFile.close();
 
     auto parsed = crow::json::load(buffer.str());
@@ -137,21 +129,16 @@ bool FileManager::recallChatMessage(const std::string& userA, const std::string&
 
     std::vector<crow::json::wvalue> newArray;
     bool found = false;
-
-    // Mesajları tara
     for (const auto& item : parsed) {
         crow::json::wvalue msg(item);
-
-        // Silinmek istenen mesajı bulursak:
         if (item.has("message_id") && item["message_id"].s() == msgId) {
-            msg["is_recalled"] = true; // Silindi bayrağını kaldır
-            msg["content"] = "";       // Şifreli veriyi diskten tamamen yok et!
+            msg["is_recalled"] = true;
+            msg["content"] = "";
             found = true;
         }
         newArray.push_back(std::move(msg));
     }
 
-    // Dosyaya geri yaz
     if (found) {
         std::ofstream outFile(filePath, std::ios::trunc);
         outFile << crow::json::wvalue(newArray).dump();
