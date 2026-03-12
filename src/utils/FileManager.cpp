@@ -70,20 +70,9 @@ std::string FileManager::readFile(const std::string& filepath) {
     oss << ifs.rdbuf();
     return oss.str();
 }
-// İki kullanıcı için benzersiz, alfabetik bir dosya adı üretir (Alice ve Bob / Bob ve Alice hep aynı dosyayı verir)
-std::string FileManager::getChatFilePath(const std::string& userA, const std::string& userB) {
-    std::string first = (userA < userB) ? userA : userB;
-    std::string second = (userA < userB) ? userB : userA;
-
-    // Klasör yoksa oluştur
-    if (!fs::exists("chat_data")) {
-        fs::create_directory("chat_data");
-    }
-    return "chat_data/chat_" + first + "_" + second + ".json";
-}
 
 // JSON dosyasına yeni mesajı ekler
-bool FileManager::saveChatMessage(const std::string& userA, const std::string& userB, const crow::json::wvalue& messageObj) {
+bool saveChatMessage(const std::string& userA, const std::string& userB, const crow::json::wvalue& messageObj) {
     std::string filePath = getChatFilePath(userA, userB);
     std::vector<crow::json::rvalue> existingMessages;
 
@@ -123,7 +112,7 @@ bool FileManager::saveChatMessage(const std::string& userA, const std::string& u
 }
 
 // Tüm geçmişi okur ve arayüze (Frontend) göndermeye hazır hale getirir
-crow::json::wvalue FileManager::getChatHistory(const std::string& userA, const std::string& userB) {
+crow::json::wvalue getChatHistory(const std::string& userA, const std::string& userB) {
     std::string filePath = getChatFilePath(userA, userB);
 
     if (fs::exists(filePath)) {
@@ -140,4 +129,16 @@ crow::json::wvalue FileManager::getChatHistory(const std::string& userA, const s
     }
     // Dosya yoksa veya boşsa boş bir liste döndür
     return crow::json::wvalue(std::vector<crow::json::wvalue>());
+}
+
+// İki kullanıcı için benzersiz, alfabetik bir dosya adı üretir (Alice ve Bob / Bob ve Alice hep aynı dosyayı verir)
+std::string getChatFilePath(const std::string& userA, const std::string& userB) {
+    std::string first = (userA < userB) ? userA : userB;
+    std::string second = (userA < userB) ? userB : userA;
+
+    // Klasör yoksa oluştur
+    if (!fs::exists("chat_data")) {
+        fs::create_directory("chat_data");
+    }
+    return "chat_data/chat_" + first + "_" + second + ".json";
 }
