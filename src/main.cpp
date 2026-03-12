@@ -61,7 +61,8 @@ int main() {
         cors.global()
             .headers("Origin", "Content-Type", "Accept", "Authorization")
             .methods("POST"_method, "GET"_method, "OPTIONS"_method, "PUT"_method, "DELETE"_method)
-            .origin("*"); // Geliştirme aşamasında her yerden gelen isteklere izin veriyoruz.
+            .origin("*") // Geliştirme aşamasında her yerden gelen isteklere izin veriyoruz.
+            .allow_credentials();
 
         // Bütün API Endpoint'lerini sisteme yüklüyoruz
         AuthRoutes::setup(app, db);
@@ -76,10 +77,25 @@ int main() {
         RoleRoutes::setup(app, db);
         ReportRoutes::setup(app, db);
 
-        // İstemcilere "uploads" klasöründeki dosyaları (Resim/PDF) gösterebilmek için:
-        CROW_ROUTE(app, "/uploads/<string>")
-            ([](const crow::request& req, crow::response& res, std::string filename) {
-            res.set_static_file_info("uploads/" + filename);
+        // FRONTEND İÇİN: Yüklenen dosyaları dışarıya aç (Statik Servis)
+        CROW_ROUTE(app, "/uploads/<path>")
+            ([](const crow::request& req, crow::response& res, std::string path) {
+            std::string fullPath = "uploads/" + path;
+            std::ifstream file(fullPath, std::ios::binary);
+            if (!file.is_open()) {
+                res.code = 404;
+                res.end();
+                return;
+            }
+            std::ostringstream contents;
+            contents << file.rdbuf();
+            res.body = contents.str();
+
+            // Tarayıcının dosyayı doğru anlaması için basit mime-type ayarları
+            if (path.find(".png") != std::string::npos) res.add_header("Content-Type", "image/png");
+            else if (path.find(".jpg") != std::string::npos || path.find(".jpeg") != std::string::npos) res.add_header("Content-Type", "image/jpeg");
+            else res.add_header("Content-Type", "application/octet-stream");
+
             res.end();
                 });
 

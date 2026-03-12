@@ -149,3 +149,21 @@ std::string Security::decryptMessage(const std::string& hexText) {
     }
     return plainText;
 }
+
+// ==========================================================
+// TOKEN DOĞRULAMA VE ID ÇIKARTMA
+// ==========================================================
+std::string Security::verifyToken(const std::string& token, DatabaseManager& db) {
+    // Eğer token boş gönderilmişse anında reddet
+    if (token.empty()) {
+        return "";
+    }
+
+    // NOT: Gerçek bir SaaS uygulamasında (Canlıya çıkarken) burada JWT (JSON Web Token) 
+    // çözülür veya veritabanından Session Token kontrolü yapılır.
+    // Örnek: return db.getUserIdByToken(token);
+
+    // Şimdilik sistemin kesintisiz çalışması ve Frontend testlerini hemen yapabilmen için, 
+    // Frontend'in token parametresi üzerinden direkt kendi User ID'sini gönderdiğini varsayıyoruz.
+    return token;
+}

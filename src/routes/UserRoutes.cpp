@@ -375,18 +375,5 @@ void UserRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
         }
         return crow::response(500);
             });
-    // ==========================================================
-    // MESAJ GEÇMİŞİNİ GETİR (CORS Hatasını Çözer)
-    // ==========================================================
-    CROW_ROUTE(app, "/api/chat/history/<string>").methods("GET"_method)
-        ([&db](const crow::request& req, std::string targetId) {
-
-        if (!Security::checkAuth(req, db)) return crow::response(401);
-
-        // Şimdilik boş bir JSON listesi döndürerek React'in çökmesini engelliyoruz
-        crow::json::wvalue res = crow::json::wvalue::list();
-
-        return crow::response(200, res);
-            });
     
 }
