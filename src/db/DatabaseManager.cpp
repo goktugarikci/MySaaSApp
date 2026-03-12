@@ -192,10 +192,30 @@ std::vector<User> DatabaseManager::getAllUsers() {
 
 
 SystemStats DatabaseManager::getSystemStats() {
-    SystemStats stats = { 0, 0, 0 }; sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM Users;", -1, &stmt, nullptr) == SQLITE_OK) { if (sqlite3_step(stmt) == SQLITE_ROW) stats.user_count = sqlite3_column_int(stmt, 0); } sqlite3_finalize(stmt);
-    if (sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM Servers;", -1, &stmt, nullptr) == SQLITE_OK) { if (sqlite3_step(stmt) == SQLITE_ROW) stats.server_count = sqlite3_column_int(stmt, 0); } sqlite3_finalize(stmt);
-    if (sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM Messages;", -1, &stmt, nullptr) == SQLITE_OK) { if (sqlite3_step(stmt) == SQLITE_ROW) stats.message_count = sqlite3_column_int(stmt, 0); } sqlite3_finalize(stmt); return stats;
+    SystemStats stats;
+    stats.total_users = 0;
+    stats.total_servers = 0;
+    stats.active_users = 0;
+    stats.total_messages = 0;
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM Users;", -1, &stmt, nullptr) == SQLITE_OK) {
+        if (sqlite3_step(stmt) == SQLITE_ROW) stats.total_users = sqlite3_column_int(stmt, 0);
+    } sqlite3_finalize(stmt);
+
+    if (sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM Servers;", -1, &stmt, nullptr) == SQLITE_OK) {
+        if (sqlite3_step(stmt) == SQLITE_ROW) stats.total_servers = sqlite3_column_int(stmt, 0);
+    } sqlite3_finalize(stmt);
+
+    if (sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM Messages;", -1, &stmt, nullptr) == SQLITE_OK) {
+        if (sqlite3_step(stmt) == SQLITE_ROW) stats.total_messages = sqlite3_column_int(stmt, 0);
+    } sqlite3_finalize(stmt);
+
+    if (sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM Users WHERE Status = 'Online';", -1, &stmt, nullptr) == SQLITE_OK) {
+        if (sqlite3_step(stmt) == SQLITE_ROW) stats.active_users = sqlite3_column_int(stmt, 0);
+    } sqlite3_finalize(stmt);
+
+    return stats;
 }
 
 std::vector<ServerLog> DatabaseManager::getSystemLogs(int limit) {

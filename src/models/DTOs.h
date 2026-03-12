@@ -1,7 +1,6 @@
 #pragma once
 #include <string>
 
-struct SystemStats { int user_count; int server_count; int message_count; };
 
 struct ServerLog {
     std::string id;
@@ -9,7 +8,13 @@ struct ServerLog {
     std::string level;
     std::string action;
     std::string details;
-    std::string created_at;
+    std::string timestamp; // Derleyicinin kızdığı eksik değişken buydu!
+};
+struct SystemStats {
+    int total_users = 0;
+    int total_servers = 0;
+    int active_users = 0;
+    int total_messages = 0;
 };
 
 // EKSİK OLAN UserReport BURAYA EKLENDİ
@@ -34,7 +39,11 @@ struct CardComment {
     std::string content;
     std::string timestamp;
 };
-
+struct CardChecklist {
+    std::string id;
+    std::string content;
+    bool is_completed;
+};
 struct CardTag {
     std::string id;
     std::string tag_name;
@@ -44,4 +53,10 @@ struct BannedUserRecord {
     std::string user_id;
     std::string reason;
     std::string date;
+}; 
+struct CardActivity {
+    std::string id;
+    std::string user_name;
+    std::string action;
+    std::string timestamp;
 };
