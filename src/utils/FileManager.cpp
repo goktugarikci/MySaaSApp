@@ -72,7 +72,7 @@ std::string FileManager::readFile(const std::string& filepath) {
 }
 
 // JSON dosyasına yeni mesajı ekler
-bool saveChatMessage(const std::string& userA, const std::string& userB, const crow::json::wvalue& messageObj) {
+bool FileManager::saveChatMessage(const std::string& userA, const std::string& userB, const crow::json::wvalue& messageObj) {
     std::string filePath = getChatFilePath(userA, userB);
     std::vector<crow::json::rvalue> existingMessages;
 
@@ -112,7 +112,7 @@ bool saveChatMessage(const std::string& userA, const std::string& userB, const c
 }
 
 // Tüm geçmişi okur ve arayüze (Frontend) göndermeye hazır hale getirir
-crow::json::wvalue getChatHistory(const std::string& userA, const std::string& userB) {
+crow::json::wvalue FileManager::getChatHistory(const std::string& userA, const std::string& userB) {
     std::string filePath = getChatFilePath(userA, userB);
 
     if (fs::exists(filePath)) {
@@ -132,7 +132,7 @@ crow::json::wvalue getChatHistory(const std::string& userA, const std::string& u
 }
 
 // İki kullanıcı için benzersiz, alfabetik bir dosya adı üretir (Alice ve Bob / Bob ve Alice hep aynı dosyayı verir)
-std::string getChatFilePath(const std::string& userA, const std::string& userB) {
+std::string FileManager::getChatFilePath(const std::string& userA, const std::string& userB) {
     std::string first = (userA < userB) ? userA : userB;
     std::string second = (userA < userB) ? userB : userA;
 
