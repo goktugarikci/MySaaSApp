@@ -447,31 +447,96 @@ std::vector<Message> DatabaseManager::getThreadReplies(const std::string& messag
 }
 
 std::vector<KanbanList> DatabaseManager::getKanbanBoard(std::string channelId) {
-    std::vector<KanbanList> board; std::string sql = "SELECT ID, Title, Position FROM KanbanLists WHERE ChannelID = '" + channelId + "' ORDER BY Position ASC;"; sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
-        while (sqlite3_step(stmt) == SQLITE_ROW) {
-            std::string listId = SAFE_TEXT(0); std::vector<KanbanCard> cards;
-            std::string cardSql = "SELECT ID, Title, Description, Priority, Position FROM KanbanCards WHERE ListID = '" + listId + "' ORDER BY Position ASC;"; sqlite3_stmt* cardStmt;
-            if (sqlite3_prepare_v2(db, cardSql.c_str(), -1, &cardStmt, nullptr) == SQLITE_OK) { while (sqlite3_step(cardStmt) == SQLITE_ROW) cards.push_back(KanbanCard{ SAFE_TEXT(0), listId, SAFE_TEXT(1), SAFE_TEXT(2), sqlite3_column_int(cardStmt, 3), sqlite3_column_int(cardStmt, 4) }); } sqlite3_finalize(cardStmt); board.push_back(KanbanList{ listId, SAFE_TEXT(1), sqlite3_column_int(stmt, 2), cards });
+    std::vector<KanbanList> board;
+    std::lock_guard<std::mutex> lock(dbMutex);
+    if (!db) return board;
+
+    // Önce Panodaki Listeleri (Sütunları) Çek
+    std::string listQuery = "SELECT id, title, position FROM KanbanLists WHERE channel_id = '" + channelId + "' ORDER BY position ASC;";
+    sqlite3_stmt* listStmt;
+
+    if (sqlite3_prepare_v2(db, listQuery.c_str(), -1, &listStmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(listStmt) == SQLITE_ROW) {
+            KanbanList list;
+            list.id = reinterpret_cast<const char*>(sqlite3_column_text(listStmt, 0));
+            list.title = reinterpret_cast<const char*>(sqlite3_column_text(listStmt, 1));
+            list.position = sqlite3_column_int(listStmt, 2);
+            board.push_back(list);
         }
-    } sqlite3_finalize(stmt); return board;
+    }
+    sqlite3_finalize(listStmt);
+
+    // Sonra Her Bir Listenin İçindeki Kartları (Görevleri) Çek
+    for (auto& list : board) {
+        std::string cardQuery = "SELECT id, title, description, priority, position, assignee_id, is_completed, attachment_url, due_date "
+            "FROM KanbanCards WHERE list_id = '" + list.id + "' ORDER BY position ASC;";
+        sqlite3_stmt* cardStmt;
+        if (sqlite3_prepare_v2(db, cardQuery.c_str(), -1, &cardStmt, nullptr) == SQLITE_OK) {
+            while (sqlite3_step(cardStmt) == SQLITE_ROW) {
+                KanbanCard card;
+                card.id = reinterpret_cast<const char*>(sqlite3_column_text(cardStmt, 0));
+                card.listId = list.id;
+                card.title = reinterpret_cast<const char*>(sqlite3_column_text(cardStmt, 1));
+
+                const char* desc = reinterpret_cast<const char*>(sqlite3_column_text(cardStmt, 2));
+                card.description = desc ? desc : "";
+
+                card.priority = sqlite3_column_int(cardStmt, 3);
+                card.position = sqlite3_column_int(cardStmt, 4);
+
+                const char* assignee = reinterpret_cast<const char*>(sqlite3_column_text(cardStmt, 5));
+                card.assigneeId = assignee ? assignee : "";
+
+                card.isCompleted = sqlite3_column_int(cardStmt, 6) != 0;
+
+                const char* attachment = reinterpret_cast<const char*>(sqlite3_column_text(cardStmt, 7));
+                card.attachmentUrl = attachment ? attachment : "";
+
+                const char* dueDate = reinterpret_cast<const char*>(sqlite3_column_text(cardStmt, 8));
+                card.dueDate = dueDate ? dueDate : "";
+
+                list.cards.push_back(card);
+            }
+        }
+        sqlite3_finalize(cardStmt);
+    }
+
+    return board;
 }
-bool DatabaseManager::createKanbanList(std::string boardChannelId, std::string title) { std::string id = Security::generateId(15); return executeQuery("INSERT INTO KanbanLists (ID, ChannelID, Title, Position) VALUES ('" + id + "', '" + boardChannelId + "', '" + title + "', 0);"); }
+
+bool DatabaseManager::createKanbanList(std::string boardChannelId, std::string title) {
+    std::string id = Security::generateId(12);
+    // Yeni listeyi en sona eklemek için önce max pozisyonu bulalım (basitlik için direkt 99 diyebiliriz veya sorgu atabiliriz)
+    std::string sql = "INSERT INTO KanbanLists (id, channel_id, title, position) VALUES ('" +
+        id + "', '" + boardChannelId + "', '" + title + "', (SELECT COALESCE(MAX(position), 0) + 1 FROM KanbanLists WHERE channel_id='" + boardChannelId + "'));";
+    return executeQuery(sql);
+}
+
 bool DatabaseManager::updateKanbanList(std::string listId, const std::string& title, int position) { return executeQuery("UPDATE KanbanLists SET Title='" + title + "', Position=" + std::to_string(position) + " WHERE ID='" + listId + "'"); }
 bool DatabaseManager::deleteKanbanList(std::string listId) { return executeQuery("DELETE FROM KanbanLists WHERE ID='" + listId + "'"); }
-bool DatabaseManager::createKanbanCard(std::string listId, std::string title, std::string desc, int priority) { return createKanbanCard(listId, title, desc, priority, "", "", ""); }
+
 bool DatabaseManager::createKanbanCard(std::string listId, std::string title, std::string desc, int priority, std::string assigneeId, std::string attachmentUrl, std::string dueDate) {
-    std::string id = Security::generateId(15); sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db, "INSERT INTO KanbanCards (ID, ListID, Title, Description, Priority, Position, AssigneeID, AttachmentURL, DueDate) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?);", -1, &stmt, nullptr) == SQLITE_OK) {
-        sqlite3_bind_text(stmt, 1, id.c_str(), -1, SQLITE_TRANSIENT); sqlite3_bind_text(stmt, 2, listId.c_str(), -1, SQLITE_TRANSIENT); sqlite3_bind_text(stmt, 3, title.c_str(), -1, SQLITE_TRANSIENT); sqlite3_bind_text(stmt, 4, desc.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_int(stmt, 5, priority); sqlite3_bind_text(stmt, 6, assigneeId.c_str(), -1, SQLITE_TRANSIENT); sqlite3_bind_text(stmt, 7, attachmentUrl.c_str(), -1, SQLITE_TRANSIENT);
-        if (dueDate.empty()) sqlite3_bind_null(stmt, 8); else sqlite3_bind_text(stmt, 8, dueDate.c_str(), -1, SQLITE_TRANSIENT);
-        bool s = (sqlite3_step(stmt) == SQLITE_DONE); sqlite3_finalize(stmt); return s;
-    } return false;
+    std::string id = Security::generateId(16);
+    std::string sql = "INSERT INTO KanbanCards (id, list_id, title, description, priority, position, assignee_id, attachment_url, due_date, is_completed) "
+        "VALUES ('" + id + "', '" + listId + "', '" + title + "', '" + desc + "', " + std::to_string(priority) +
+        ", (SELECT COALESCE(MAX(position), 0) + 1 FROM KanbanCards WHERE list_id='" + listId + "'), '" +
+        assigneeId + "', '" + attachmentUrl + "', '" + dueDate + "', 0);";
+    return executeQuery(sql);
 }
+
 bool DatabaseManager::updateKanbanCard(std::string cardId, std::string title, std::string desc, int priority) { return executeQuery("UPDATE KanbanCards SET Title='" + title + "', Description='" + desc + "', Priority=" + std::to_string(priority) + " WHERE ID='" + cardId + "'"); }
 bool DatabaseManager::deleteKanbanCard(std::string cardId) { return executeQuery("DELETE FROM KanbanCards WHERE ID='" + cardId + "'"); }
-bool DatabaseManager::moveCard(std::string cardId, std::string newListId, int newPosition) { return executeQuery("UPDATE KanbanCards SET ListID='" + newListId + "', Position=" + std::to_string(newPosition) + " WHERE ID='" + cardId + "'"); }
+bool DatabaseManager::moveCard(std::string cardId, std::string newListId, int newPosition) {
+    std::lock_guard<std::mutex> lock(dbMutex);
+    if (!db) return false;
+    std::string shiftSql = "UPDATE KanbanCards SET position = position + 1 WHERE list_id = '" + newListId + "' AND position >= " + std::to_string(newPosition) + ";";
+    char* errMsg = nullptr;
+    sqlite3_exec(db, shiftSql.c_str(), 0, 0, &errMsg);
+    if (errMsg) sqlite3_free(errMsg);
+    std::string moveSql = "UPDATE KanbanCards SET list_id = '" + newListId + "', position = " + std::to_string(newPosition) + " WHERE id = '" + cardId + "';";
+    return sqlite3_exec(db, moveSql.c_str(), 0, 0, nullptr) == SQLITE_OK;
+}
+
 std::string DatabaseManager::getServerIdByCardId(std::string cardId) {
     sqlite3_stmt* stmt; std::string sId = "";
     if (sqlite3_prepare_v2(db, "SELECT C.ServerID FROM KanbanCards KC JOIN KanbanLists KL ON KC.ListID = KL.ID JOIN Channels C ON KL.ChannelID = C.ID WHERE KC.ID = ?;", -1, &stmt, nullptr) == SQLITE_OK) { sqlite3_bind_text(stmt, 1, cardId.c_str(), -1, SQLITE_STATIC); if (sqlite3_step(stmt) == SQLITE_ROW) sId = SAFE_TEXT(0); } sqlite3_finalize(stmt); return sId;
@@ -480,7 +545,9 @@ bool DatabaseManager::assignUserToCard(std::string cardId, std::string assigneeI
     sqlite3_stmt* stmt; if (sqlite3_prepare_v2(db, "UPDATE KanbanCards SET AssigneeID = ? WHERE ID = ?;", -1, &stmt, nullptr) == SQLITE_OK) { sqlite3_bind_text(stmt, 1, assigneeId.c_str(), -1, SQLITE_TRANSIENT); sqlite3_bind_text(stmt, 2, cardId.c_str(), -1, SQLITE_TRANSIENT); bool s = (sqlite3_step(stmt) == SQLITE_DONE); sqlite3_finalize(stmt); return s; } return false;
 }
 bool DatabaseManager::updateCardCompletion(std::string cardId, bool isCompleted) {
-    sqlite3_stmt* stmt; if (sqlite3_prepare_v2(db, "UPDATE KanbanCards SET IsCompleted = ? WHERE ID = ?;", -1, &stmt, nullptr) == SQLITE_OK) { sqlite3_bind_int(stmt, 1, isCompleted ? 1 : 0); sqlite3_bind_text(stmt, 2, cardId.c_str(), -1, SQLITE_TRANSIENT); bool s = (sqlite3_step(stmt) == SQLITE_DONE); sqlite3_finalize(stmt); return s; } return false;
+    int status = isCompleted ? 1 : 0;
+    std::string sql = "UPDATE KanbanCards SET is_completed = " + std::to_string(status) + " WHERE id = '" + cardId + "';";
+    return executeQuery(sql);
 }
 std::vector<CardComment> DatabaseManager::getCardComments(std::string cardId) {
     std::vector<CardComment> comments; std::string sql = "SELECT C.ID, C.UserID, U.Name, C.Content, C.CreatedAt FROM KanbanComments C JOIN Users U ON C.UserID = U.ID WHERE C.CardID = ? ORDER BY C.CreatedAt ASC;"; sqlite3_stmt* stmt;
