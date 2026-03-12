@@ -11,6 +11,7 @@ void MessageRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db
     // ==========================================================
     // 1. MESAJ GÖNDERME (YENİ FileManager UYUMLU)
     // ==========================================================
+<<<<<<< HEAD
     CROW_ROUTE(app, "/api/chat/<string>/messages").methods("POST"_method)
         ([&db](const crow::request& req, std::string targetId) {
         try {
@@ -71,6 +72,40 @@ void MessageRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db
             CROW_LOG_ERROR << "API Mesaj Hatasi: " << e.what();
             return crow::response(500, "Sunucu Hatasi.");
         }
+=======
+    CROW_ROUTE(app, "/api/channels/<string>/messages").methods("GET"_method)
+        ([&db](const crow::request& req, std::string channelId) {
+        if (!Security::checkAuth(req, db)) return crow::response(401);
+
+        std::vector<Message> messages = db.getChannelMessages(channelId, 50);
+        crow::json::wvalue res;
+        for (size_t i = 0; i < messages.size(); ++i) {
+            res[i] = messages[i].toJson();
+        }
+        return crow::response(200, res);
+            });
+
+    // ==========================================================
+    // 2. KANALA VEYA DM'E MESAJ GÖNDER VE LOGLA
+    // ==========================================================
+    CROW_ROUTE(app, "/api/channels/<string>/messages").methods("POST"_method)
+        ([&db](const crow::request& req, std::string channelId) {
+        if (!Security::checkAuth(req, db)) return crow::response(401);
+        auto x = crow::json::load(req.body);
+        if (!x || !x.has("content")) return crow::response(400);
+
+        std::string attachmentUrl = x.has("attachment_url") ? std::string(x["attachment_url"].s()) : "";
+        std::string userId = Security::getUserIdFromHeader(req);
+
+        if (db.sendMessage(channelId, userId, std::string(x["content"].s()), attachmentUrl)) {
+
+            // LOG: Yeni Mesaj Gönderimi
+            db.logAction(userId, "SEND_MESSAGE", channelId, "Kullanici bir kanala veya DM'e yeni mesaj gonderdi.");
+
+            return crow::response(201, "Mesaj gonderildi.");
+        }
+        return crow::response(500);
+>>>>>>> parent of 25d01e2 (v)
             });
 
     // ==========================================================
