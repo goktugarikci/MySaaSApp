@@ -1,89 +1,126 @@
-#include "PaymentRoutes.h"
+#include "MessageRoutes.h"
 #include "../utils/Security.h"
+#include "../utils/FileManager.h"
+#include <nlohmann/json.hpp>
 
-void PaymentRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
+void MessageRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
 
     // ==========================================================
-    // 1. KULLANICININ ÖDEME GEÇMİŞİNİ GETİR
+    // 1. REST API İLE MESAJ GÖNDERME
     // ==========================================================
-    CROW_ROUTE(app, "/api/payments").methods("GET"_method)
-        ([&db](const crow::request& req) {
-        if (!Security::checkAuth(req, db)) return crow::response(401);
-        std::string userId = Security::getUserIdFromHeader(req);
-
-        std::vector<PaymentTransaction> payments = db.getUserPayments(userId);
-        crow::json::wvalue res;
-        for (size_t i = 0; i < payments.size(); ++i) {
-            res[i] = payments[i].toJson();
+    CROW_ROUTE(app, "/api/chat/<string>/messages").methods("POST"_method)
+        ([&db](const crow::request& req, std::string targetId) {
+        // Kimlik doğrulama
+        if (!Security::checkAuth(req, db, false)) {
+            return crow::response(401, "Yetkisiz erisim. Gecerli bir token saglayin.");
         }
-        return crow::response(200, res);
+
+        std::string senderId = Security::getUserIdFromHeader(req);
+        auto body = crow::json::load(req.body);
+        if (!body) {
+            return crow::response(400, "Gecersiz JSON formatı.");
+        }
+
+        // Mesaj içeriğini güvenli bir şekilde al
+        std::string rawContent = "";
+        if (body.has("content")) rawContent = std::string(body["content"].s());
+        else if (body.has("text")) rawContent = std::string(body["text"].s());
+
+        if (rawContent.empty()) {
+            return crow::response(400, "Mesaj icerigi eksik.");
+        }
+
+        // Güvenli Tip Dönüşümleri (Derleyici hatasını önlemek için std::string cast yapıldı)
+        std::string contentType = body.has("content_type") ? std::string(body["content_type"].s()) : std::string("Text");
+        bool isGroup = body.has("is_group") ? body["is_group"].b() : false;
+        std::string groupId = body.has("group_id") ? std::string(body["group_id"].s()) : std::string("default_group");
+
+        // Mesajı Şifrele
+        std::string encryptedContent = Security::encryptMessage(rawContent);
+        bool saved = false;
+
+        // Dosya Yöneticisine (FileManager) kaydet
+        if (isGroup) {
+            saved = FileManager::saveGroupMessage(groupId, targetId, senderId, encryptedContent, contentType);
+        }
+        else {
+            saved = FileManager::savePrivateMessage(senderId, targetId, encryptedContent, contentType);
+        }
+
+        if (saved) {
+            return crow::response(201, "Mesaj basariyla iletildi ve sisteme kaydedildi.");
+        }
+
+        return crow::response(500, "Sunucu hatasi: Dosya yazilamadi.");
             });
 
-    // ==========================================================
-    // 2. YENİ ÖDEME (CHECKOUT) BAŞLATMA
-    // ==========================================================
-    CROW_ROUTE(app, "/api/payments/checkout").methods("POST"_method)
-        ([&db](const crow::request& req) {
-        if (!Security::checkAuth(req, db)) return crow::response(401);
-        auto x = crow::json::load(req.body);
-        if (!x || !x.has("amount") || !x.has("currency")) return crow::response(400, "Tutar ve para birimi eksik.");
-
-        std::string userId = Security::getUserIdFromHeader(req);
-        float amount = x["amount"].d(); // .d() double olarak çeker
-        std::string currency = std::string(x["currency"].s());
-
-        // Gerçek bir sistemde burada Stripe/Iyzico API'sine istek atılır ve bir ödeme ID'si alınır.
-        // Biz şimdilik sistemde benzersiz bir "Mock Provider ID" üretiyoruz.
-        std::string providerPaymentId = "PAY-" + Security::generateId(15);
-
-        if (db.createPaymentRecord(userId, providerPaymentId, amount, currency)) {
-            crow::json::wvalue res;
-            res["message"] = "Odeme oturumu baslatildi.";
-            res["provider_payment_id"] = providerPaymentId;
-            res["amount"] = amount;
-            res["currency"] = currency;
-            res["status"] = "pending";
-            return crow::response(201, res);
-        }
-        return crow::response(500, "Odeme kaydi olusturulamadi.");
-            });
 
     // ==========================================================
-    // 3. WEBHOOK (SANAL POS'TAN GELEN BAŞARILI ÖDEME BİLDİRİMİ)
+    // 2. MESAJ GEÇMİŞİNİ GETİRME
     // ==========================================================
-    // Not: Gerçekte bu endpoint'e istek atanın (Stripe/Iyzico) imzası kontrol edilmelidir.
-    CROW_ROUTE(app, "/api/payments/webhook").methods("POST"_method)
-        ([&db](const crow::request& req) {
-        auto x = crow::json::load(req.body);
-        if (!x || !x.has("provider_payment_id") || !x.has("status")) return crow::response(400);
-
-        std::string providerId = std::string(x["provider_payment_id"].s());
-        std::string status = std::string(x["status"].s()); // "success" veya "failed" bekleniyor
-
-        // Gelen istekle ödeme durumunu güncelliyoruz
-        if (!db.updatePaymentStatus(providerId, status)) {
-            return crow::response(404, "Odeme kaydi bulunamadi.");
+    CROW_ROUTE(app, "/api/chat/history/<string>").methods("GET"_method)
+        ([&db](const crow::request& req, std::string targetId) {
+        // Kimlik doğrulama
+        if (!Security::checkAuth(req, db, false)) {
+            return crow::response(401, "Yetkisiz erisim.");
         }
 
-        // EĞER ÖDEME BAŞARILIYSA KULLANICI ABONELİĞİNİ YÜKSELT
-        if (status == "success") {
-            // Önce providerId'ye ait userId'yi bulmamız lazım (Bunun için DB'de ufak bir sorgu yapıyoruz)
-            std::string userId = "";
-            auto payments = db.getUserPayments(""); // Tüm ödemeleri çekersek performans sorunu olur, bu yüzden doğrudan auth olmadan çalışan bir veritabanı sorgusu daha sağlıklı olur.
-            // Fakat pratiklik için ödemenin ait olduğu kullanıcıyı bulduğumuzu varsayalım. 
-            // (DatabaseManager'a doğrudan getUserByPaymentId yazılabilir, ancak şimdilik body'den aldığımızı varsayalım).
+        std::string myId = Security::getUserIdFromHeader(req);
 
-            if (x.has("user_id") && x.has("subscription_level") && x.has("duration_days")) {
-                std::string targetUserId = std::string(x["user_id"].s());
-                int level = x["subscription_level"].i();
-                int days = x["duration_days"].i();
+        // URL Parametrelerinden grup/DM ayrımını kontrol et (?is_group=true&group_id=...)
+        auto isGroupParam = req.url_params.get("is_group");
+        bool isGroup = (isGroupParam != nullptr && std::string(isGroupParam) == "true");
 
-                db.updateUserSubscription(targetUserId, level, days);
-                return crow::response(200, "Odeme onaylandi, abonelik yukseltildi.");
+        std::string rawJsonStr;
+
+        if (isGroup) {
+            auto groupIdParam = req.url_params.get("group_id");
+            std::string groupId = groupIdParam ? std::string(groupIdParam) : std::string("default_group");
+            rawJsonStr = FileManager::getGroupChatHistory(groupId, targetId);
+        }
+        else {
+            rawJsonStr = FileManager::getPrivateChatHistory(myId, targetId);
+        }
+
+        try {
+            // Ham JSON stringini Nlohmann JSON nesnesine çevir
+            auto parsedHistory = nlohmann::json::parse(rawJsonStr);
+
+            // Her mesajı dön ve şifrelenmiş içeriği çöz (Frontend'e açık göndermek için)
+            // İsterseniz frontend şifreyi çözebilir, ancak API üzerinden okunabilir isteniyorsa:
+            for (auto& msg : parsedHistory) {
+                if (msg.contains("Mesaj")) {
+
+                    bool isDeleted = false;
+                    if (msg["MesajSilinmeDurumu"].is_boolean()) {
+                        isDeleted = msg["MesajSilinmeDurumu"].get<bool>();
+                    }
+                    else if (msg["MesajSilinmeDurumu"].is_string()) {
+                        isDeleted = (msg["MesajSilinmeDurumu"].get<std::string>() != "Yok");
+                    }
+
+                    // Mesaj silinmemişse şifresini çöz
+                    if (!isDeleted) {
+                        std::string encryptedStr = msg["Mesaj"].get<std::string>();
+                        msg["Mesaj_Cozulmus"] = Security::decryptMessage(encryptedStr);
+                    }
+                    else {
+                        msg["Mesaj_Cozulmus"] = "Bu mesaj silindi.";
+                    }
+                }
             }
-            return crow::response(200, "Odeme durumu guncellendi ancak abonelik verisi eksik oldugu icin yukseltme yapilmadi.");
-        }
 
-        return crow::response(200, "Odeme durumu guncellendi: " + status);
+            crow::response res;
+            res.code = 200;
+            res.set_header("Content-Type", "application/json");
+            res.body = parsedHistory.dump();
+            return res;
+
+        }
+        catch (const std::exception& e) {
+            // JSON Parse hatası durumu
+            return crow::response(500, "Gecmis okunurken JSON format hatasi olustu.");
+        }
             });
+
 }

@@ -3,6 +3,8 @@
 #include <argon2.h>
 #include <vector>
 #include <chrono>
+#include <iomanip>    // YENİ: hashString formatlaması için
+#include <sstream>    // YENİ: hashString formatlaması için
 #include <nlohmann/json.hpp>
 
 #undef JWT_DISABLE_PICOJSON
@@ -10,10 +12,13 @@
 
 const std::string JWT_SECRET = "MySuperSecretSaaSTokenKey2026!";
 
+// ==========================================================
+// 1. KULLANICI ŞİFRELERİ (ARGON2)
+// ==========================================================
 std::string Security::hashPassword(const std::string& password) {
     const uint32_t t_cost = 2, m_cost = (1 << 16), parallelism = 1;
     const size_t hash_len = 32;
-    std::string salt = "fixed_salt_for_now_123456";
+    std::string salt = "fixed_salt_for_now_123456"; // Gerçek sistemde her kullanıcıya özel random olmalı
     size_t encoded_len = argon2_encodedlen(t_cost, m_cost, parallelism, (uint32_t)salt.length(), hash_len, Argon2_id);
     std::vector<char> encoded(encoded_len);
 
@@ -29,6 +34,22 @@ bool Security::verifyPassword(const std::string& password, const std::string& ha
     return argon2id_verify(hash.c_str(), password.c_str(), password.length()) == ARGON2_OK;
 }
 
+// ==========================================================
+// YENİ EKLENEN: DOSYA VE KLASÖR HASHLEME (DETERMİNİSTİK)
+// ==========================================================
+std::string Security::hashString(const std::string& input) {
+    std::hash<std::string> hasher;
+    auto hashed = hasher(input);
+
+    // Klasör isimlerinde güvenli olması için Hex (16 tabanlı) formata çeviriyoruz
+    std::stringstream ss;
+    ss << std::hex << std::setw(16) << std::setfill('0') << hashed;
+    return ss.str();
+}
+
+// ==========================================================
+// 3. JWT (JSON WEB TOKEN) KİMLİK DOĞRULAMASI
+// ==========================================================
 std::string Security::generateJwt(const std::string& userId) {
     auto token = jwt::create()
         .set_issuer("MySaaSApp")
@@ -67,10 +88,16 @@ std::string Security::getUserIdFromHeader(const crow::request& req) {
 bool Security::checkAuth(const crow::request& req, DatabaseManager& db, bool requireAdmin) {
     std::string userId = getUserIdFromHeader(req);
     if (userId.empty()) return false;
+
+    // Admin Paneli için Acil Durum Bypass (Super Admin UI C++ Arayüzü İçin)
     if (userId == "aB3dE7xY9Z1kL0m") return true;
+
     return requireAdmin ? db.isSystemAdmin(userId) : true;
 }
 
+// ==========================================================
+// 4. WEBRTC (SES / GÖRÜNTÜ) LIVEKIT TOKEN
+// ==========================================================
 std::string Security::generateLiveKitToken(const std::string& roomName, const std::string& participantName, const std::string& participantId) {
     const std::string API_KEY = "devkey";
     const std::string API_SECRET = "secret";
@@ -94,12 +121,16 @@ std::string Security::generateLiveKitToken(const std::string& roomName, const st
     return token;
 }
 
+// ==========================================================
+// 5. MESAJ ŞİFRELEME (XOR ALGORİTMASI)
+// ==========================================================
 std::string Security::encryptMessage(const std::string& plaintext) {
     std::string key = "MySaaS_Secret_Key_2026!";
     std::string encrypted = plaintext;
     std::string hexEnc;
     const char hexChars[] = "0123456789ABCDEF";
 
+    // Basit ve hızlı bir XOR şifreleme + Hex dönüştürme
     for (size_t i = 0; i < plaintext.length(); ++i) {
         unsigned char c = plaintext[i] ^ key[i % key.length()];
         hexEnc += hexChars[(c >> 4) & 0xF];
@@ -112,6 +143,7 @@ std::string Security::decryptMessage(const std::string& ciphertext) {
     std::string key = "MySaaS_Secret_Key_2026!";
     std::string decrypted = "";
 
+    // Hex veriyi geri byte dizisine çevir ve XOR şifresini çöz
     for (size_t i = 0; i < ciphertext.length(); i += 2) {
         std::string byteString = ciphertext.substr(i, 2);
         char byte = (char)strtol(byteString.c_str(), NULL, 16);

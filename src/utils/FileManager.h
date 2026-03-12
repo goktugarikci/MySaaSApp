@@ -1,26 +1,36 @@
 #pragma once
 #include <string>
-#include <vector>
 #include <nlohmann/json.hpp>
 
 class FileManager {
 public:
-    // SİSTEM BAŞLATICI: Gerekli tüm klasörleri otomatik oluşturur
+    // Gerekli ana klasörleri (uploads, sohbet, grups vb.) oluşturur
     static void initDirectories();
 
-    // Mesaj kaydetme
-    static bool saveChatMessage(const std::string& chatContext, const std::string& senderId,
-        const std::string& msgId, const std::string& type,
-        const std::string& encryptedContent, const std::string& mediaPath,
-        bool isServer);
+    // ==========================================================
+    // YENİ MİMARİ: MESAJ KAYDETME FONKSİYONLARI
+    // ==========================================================
 
-    // Geçmişi getirme
-    static std::string getChatHistory(const std::string& chatContext, bool isServer);
+    // Birebir (DM) mesajları kaydeder
+    static bool savePrivateMessage(const std::string& senderId, const std::string& targetId, const std::string& encryptedMsg, const std::string& contentType);
 
-    // Mesaj görünürlüğünü değiştirme (Admin gizleme)
-    static bool toggleMessageVisibility(const std::string& chatContext, const std::string& msgId,
-        bool isServer, bool visible);
+    // Grup/Sunucu kanallarındaki mesajları kaydeder
+    static bool saveGroupMessage(const std::string& groupId, const std::string& channelId, const std::string& senderId, const std::string& encryptedMsg, const std::string& contentType);
 
-    // Sunucu dosyası isimlendirme
-    static bool renameServerFile(const std::string& oldId, const std::string& newId);
+    // ==========================================================
+    // YENİ MİMARİ: GEÇMİŞİ GETİRME FONKSİYONLARI
+    // ==========================================================
+
+    // İki kullanıcı arasındaki özel sohbet geçmişini getirir
+    static std::string getPrivateChatHistory(const std::string& user1, const std::string& user2);
+
+    // Bir grubun belirli bir kanalındaki sohbet geçmişini getirir
+    static std::string getGroupChatHistory(const std::string& groupId, const std::string& channelId);
+
+    // ==========================================================
+    // EKSTRALAR (SİLME / GİZLEME)
+    // ==========================================================
+
+    // Bir mesajı global olarak "Silindi" durumuna çeker
+    static bool toggleMessageVisibility(const std::string& contextId, const std::string& msgId, bool isGroup, const std::string& groupId = "");
 };

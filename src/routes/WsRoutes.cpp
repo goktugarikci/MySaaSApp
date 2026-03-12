@@ -5,6 +5,7 @@
 #include <unordered_set>
 #include <mutex>
 #include <iostream>
+#include <chrono>
 
 // ==========================================================
 // WEBSOCKET GLOBAL DEĞİŞKENLERİ (BELLEK İÇİ YÖNETİM)
@@ -38,23 +39,23 @@ void WsRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
             auto msg = crow::json::load(data);
             if (!msg || !msg.has("type")) return;
 
-            std::string type = msg["type"].s();
+            std::string type = std::string(msg["type"].s());
             std::lock_guard<std::mutex> lock(video_call_mtx);
 
             // A) KULLANICIYI SİSTEME KAYDET
             if (type == "register" && msg.has("user_id")) {
-                std::string userId = msg["user_id"].s();
+                std::string userId = std::string(msg["user_id"].s());
                 active_video_users[userId] = &conn;
                 conn_to_video_user[&conn] = userId;
             }
 
             // B) BİREBİR (DM) KİŞİSEL ARAMA SİNYALLERİ (Ringing)
             else if (type == "call-request" && msg.has("caller_id") && msg.has("target_id")) {
-                std::string targetId = msg["target_id"].s();
+                std::string targetId = std::string(msg["target_id"].s());
                 if (active_video_users.count(targetId)) {
                     crow::json::wvalue out;
                     out["type"] = "incoming-call";
-                    out["caller_id"] = msg["caller_id"].s();
+                    out["caller_id"] = std::string(msg["caller_id"].s());
                     if (msg.has("offer")) out["offer"] = msg["offer"];
                     active_video_users[targetId]->send_text(out.dump());
                 }
@@ -62,8 +63,8 @@ void WsRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
 
             // C) SUNUCU SESLİ ODASINA KATILMA
             else if (type == "join-room" && msg.has("user_id") && msg.has("channel_id")) {
-                std::string userId = msg["user_id"].s();
-                std::string channelId = msg["channel_id"].s();
+                std::string userId = std::string(msg["user_id"].s());
+                std::string channelId = std::string(msg["channel_id"].s());
 
                 active_video_users[userId] = &conn;
                 conn_to_video_user[&conn] = userId;
@@ -82,7 +83,7 @@ void WsRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
 
             // D) WEBRTC SİNYALİZASYON (SDP/ICE)
             else if ((type == "offer" || type == "answer" || type == "ice_candidate") && msg.has("target_id")) {
-                std::string targetId = msg["target_id"].s();
+                std::string targetId = std::string(msg["target_id"].s());
                 if (active_video_users.count(targetId)) {
                     crow::json::wvalue outMsg = msg;
                     if (conn_to_video_user.count(&conn)) {
@@ -116,7 +117,7 @@ void WsRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
 
 
     // ==========================================================
-    // 2. YAZILI SOHBET (DM VE SUNUCU KANALLARI) - JSON DEPOLAMA ENTEGRELİ
+    // 2. YAZILI SOHBET (DM VE GRUPLAR) - YENİ JSON MİMARİSİ
     // ==========================================================
     CROW_WEBSOCKET_ROUTE(app, "/ws/chat")
         .onopen([&](crow::websocket::connection& conn) {
@@ -128,54 +129,60 @@ void WsRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
             if (!msg || !msg.has("type")) return;
 
             std::lock_guard<std::mutex> lock(chat_mtx);
-            std::string type = msg["type"].s();
+            std::string type = std::string(msg["type"].s());
 
             // A) ABONE OLMA (Kanal veya DM Odasına Giriş)
             if (type == "subscribe" && msg.has("channel_id") && msg.has("user_id")) {
-                chat_user_channels[&conn] = msg["channel_id"].s();
+                chat_user_channels[&conn] = std::string(msg["channel_id"].s());
                 online_chat_users[std::string(msg["user_id"].s())] = &conn;
                 return;
             }
 
-            // B) MESAJ GÖNDERME (JSON Mühürleme + Anlık Yayın)
+            // B) MESAJ GÖNDERME (Yeni JSON Formatı ile FileManager'a Yazma ve Yayınlama)
             else if (type == "message" && msg.has("sender_id") && msg.has("target_id") && msg.has("text")) {
-                std::string sId = msg["sender_id"].s();
-                std::string tId = msg["target_id"].s(); // Kanal ID veya Karşı Kullanıcı ID
-                std::string txt = msg["text"].s();
-                bool isServer = msg.has("is_server") ? msg["is_server"].b() : false;
+                // C++ Cast işlemleri ile derleyici hatası önlendi
+                std::string sId = std::string(msg["sender_id"].s());
+                std::string tId = std::string(msg["target_id"].s()); // Grup ise Kanal ID, DM ise Karşı Kullanıcı ID
+                std::string txt = std::string(msg["text"].s());
 
-                // --- BAĞLAM (CONTEXT) BELİRLEME ---
-                std::string contextId = tId;
-                if (!isServer) {
-                    // DM ise: dm_kucukID_buyukID (Alfabetik eşleşme)
-                    std::string u1 = (sId < tId) ? sId : tId;
-                    std::string u2 = (sId < tId) ? tId : sId;
-                    contextId = "dm_" + u1 + "_" + u2;
+                // Ek içerik türü kontrolü (Dosya, Video, Fotoğraf veya Text)
+                std::string contentType = msg.has("content_type") ? std::string(msg["content_type"].s()) : std::string("Text");
+
+                // Eski 'is_server' yerine 'is_group' mantığı
+                bool isGroup = false;
+                if (msg.has("is_group")) isGroup = msg["is_group"].b();
+                else if (msg.has("is_server")) isGroup = msg["is_server"].b();
+
+                // Grup ID'si güvenli atama
+                std::string groupId = msg.has("group_id") ? std::string(msg["group_id"].s()) : std::string("default_group");
+
+                // 1. Şifrele ve Dosyaya Yaz
+                std::string encrypted = Security::encryptMessage(txt);
+                bool saved = false;
+
+                if (isGroup) {
+                    saved = FileManager::saveGroupMessage(groupId, tId, sId, encrypted, contentType);
+                }
+                else {
+                    saved = FileManager::savePrivateMessage(sId, tId, encrypted, contentType);
                 }
 
-                // 1. Şifrele ve JSON Dosyasına Yaz (Kalıcı Depolama)
-                std::string msgId = Security::generateId(18);
-                std::string encrypted = Security::encryptMessage(txt);
-
-                // FileManager::saveChatMessage(context, sender, msgId, type, content, media, isServer)
-                bool saved = FileManager::saveChatMessage(contextId, sId, msgId, "text", encrypted, "", isServer);
-
                 if (saved) {
-                    // 2. Anlık Yayın (Broadcast)
+                    // 2. Anlık Yayın (Broadcast) - Yeni Şema Formatı
                     crow::json::wvalue outMsg;
                     outMsg["type"] = "new_message";
-                    outMsg["message_id"] = msgId;
-                    outMsg["sender_id"] = sId;
-                    outMsg["target_id"] = tId;
-                    outMsg["text"] = txt;
-                    outMsg["is_server"] = isServer;
+                    outMsg["gönderenID"] = sId;
+                    outMsg["alıcıID"] = tId;
+                    outMsg["Mesaj"] = txt; // Soket üzerinden açık gidip arayüzde renderlanması için
+                    outMsg["MesajİçerikDurumu"] = contentType;
+                    outMsg["is_group"] = isGroup;
 
                     auto now = std::chrono::system_clock::now();
-                    outMsg["timestamp"] = std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count());
+                    outMsg["MesajGönderimTarihi"] = std::to_string(std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count());
 
                     for (auto const& [peer_conn, cId] : chat_user_channels) {
                         // Mesajın gitmesi gereken yer: Ya aynı kanal ID'si ya da DM ise karşı tarafın aktif bağlantısı
-                        if (cId == tId || (!isServer && cId == sId)) {
+                        if (cId == tId || (!isGroup && cId == sId)) {
                             peer_conn->send_text(outMsg.dump());
                         }
                     }
@@ -184,10 +191,10 @@ void WsRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
 
             // C) YAZIYOR... (TYPING) SİNYALİ
             else if (type == "typing" && msg.has("channel_id") && msg.has("sender_id")) {
-                std::string cId = msg["channel_id"].s();
+                std::string cId = std::string(msg["channel_id"].s());
                 crow::json::wvalue outMsg;
                 outMsg["type"] = "typing";
-                outMsg["sender_id"] = msg["sender_id"].s();
+                outMsg["sender_id"] = std::string(msg["sender_id"].s());
 
                 for (auto const& [peer_conn, room] : chat_user_channels) {
                     if (peer_conn != &conn && room == cId) {
@@ -214,7 +221,7 @@ void WsRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
         ([&db](const crow::request& req) {
         if (!Security::checkAuth(req, db)) return crow::response(401);
         crow::json::wvalue res;
-        res["iceServers"][0]["urls"][0] = "stun:stun.l.google.com:19302";
+        res["iceServers"][0]["urls"][0] = "stun:stun.l.google.com:19302"; 
         return crow::response(200, res);
             });
 
