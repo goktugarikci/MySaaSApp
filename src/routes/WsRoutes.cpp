@@ -221,7 +221,7 @@ void WsRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
         ([&db](const crow::request& req) {
         if (!Security::checkAuth(req, db)) return crow::response(401);
         crow::json::wvalue res;
-        res["iceServers"][0]["urls"][0] = "stun:stun.l.google.com:19302"; 
+        res["iceServers"][0]["urls"][0] = "stun:stun.l.google.com:19302";
         return crow::response(200, res);
             });
 
