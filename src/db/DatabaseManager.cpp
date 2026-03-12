@@ -1268,6 +1268,7 @@ bool DatabaseManager::unbanUser(std::string userId) {
     }
     return false;
 }
+
 // ==========================================================
 // 1. SOHBET MESAJLARINI KAYDETME (4 Parametreli)
 // ==========================================================
@@ -1276,11 +1277,18 @@ bool DatabaseManager::saveMessage(std::string senderId, std::string targetId, st
         std::lock_guard<std::mutex> lock(dbMutex);
         if (!db) return false;
 
+        std::string safeContent = content;
+        size_t pos = 0;
+        while ((pos = safeContent.find("'", pos)) != std::string::npos) {
+            safeContent.replace(pos, 1, "''");
+            pos += 2;
+        }
+
         std::string sql = "INSERT INTO Messages (id, channel_id, sender_id, content, type) VALUES ('" +
             Security::generateId(18) + "', '" +
             targetId + "', '" +
             senderId + "', '" +
-            content + "', '" +
+            safeContent + "', '" +
             chatType + "');";
 
         return executeQuery(sql);

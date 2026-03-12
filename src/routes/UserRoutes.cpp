@@ -388,16 +388,5 @@ void UserRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
 
         return crow::response(200, res);
             });
-    // BİLDİRİMLERİ GETİR (ÖNCELİĞE GÖRE SIRALANMIŞ HALDE)
-    CROW_ROUTE(app, "/api/notifications").methods("GET"_method)
-        ([&db](const crow::request& req) {
-
-        if (!Security::checkAuth(req, db, true)) return crow::response(403, "Yetkisiz islem.");
-        std::string myUserId = Security::getUserIdFromHeader(req);
-
-        // Zeki sorgumuz bildirimleri öncelikli olarak dizecek
-        auto notifs = db.getUserNotifications(myUserId);
-
-        return crow::response(200, crow::json::wvalue(notifs));
-            });
+    
 }
