@@ -4,28 +4,23 @@
 void ReportRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
 
     // ==========================================================
-        // KULLANICI: YENİ BİR ŞİKAYET (REPORT) OLUŞTURMA
-        // ==========================================================
+    // 1. KULLANICI ŞİKAYET OLUŞTURMA
+    // ==========================================================
     CROW_ROUTE(app, "/api/reports").methods("POST"_method)
         ([&db](const crow::request& req) {
-
-        // Normal kullanıcı yetkisi yeterlidir (false)
-        if (!Security::checkAuth(req, db, false)) return crow::response(401);
-
-        auto body = crow::json::load(req.body);
-        if (!body || !body.has("content_id") || !body.has("type") || !body.has("reason")) {
-            return crow::response(400, "Lutfen sikayet edilen icerigi (content_id), turunu (type) ve sebebini (reason) belirtin.");
-        }
-
+        if (!Security::checkAuth(req, db)) return crow::response(401);
         std::string reporterId = Security::getUserIdFromHeader(req);
-        std::string contentId = std::string(body["content_id"].s());
-        std::string type = std::string(body["type"].s()); // Örn: "MESSAGE", "USER", "SERVER"
-        std::string reason = std::string(body["reason"].s());
 
-        if (db.createReport(reporterId, contentId, type, reason)) {
-            return crow::response(201, "Sikayetiniz basariyla alindi ve adminlere iletildi.");
+        auto x = crow::json::load(req.body);
+        // content_id: Şikayet edilen mesajın/kullanıcının ID'si
+        // type: "MESSAGE", "USER", "SERVER" gibi türler
+        // reason: Şikayet sebebi
+        if (!x || !x.has("content_id") || !x.has("type") || !x.has("reason")) return crow::response(400);
+
+        if (db.createReport(reporterId, std::string(x["content_id"].s()), std::string(x["type"].s()), std::string(x["reason"].s()))) {
+            return crow::response(201, "Sikayetiniz basariyla alindi. Yoneticiler tarafindan incelenecektir.");
         }
-        return crow::response(500, "Sikayet olusturulurken sunucu hatasi.");
+        return crow::response(500);
             });
 
     // ==========================================================
@@ -49,13 +44,15 @@ void ReportRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db)
         return crow::response(200, res);
             });
 
-    // 9. ŞİKAYETİ ÇÖZÜLDÜ OLARAK İŞARETLE
-    CROW_ROUTE(app, "/api/admin/reports/<string>").methods("PUT"_method)
+    // ==========================================================
+    // 3. ŞİKAYETİ ÇÖZÜLDÜ OLARAK İŞARETLE (SADECE SÜPER ADMİN)
+    // ==========================================================
+    CROW_ROUTE(app, "/api/admin/reports/<string>/resolve").methods("PUT"_method)
         ([&db](const crow::request& req, std::string reportId) {
         if (!Security::checkAuth(req, db, true)) return crow::response(403);
+
         if (db.resolveReport(reportId)) {
-            db.logAction(Security::getUserIdFromHeader(req), "RESOLVE_REPORT", reportId, "Admin bir sikayeti cozume kavusturdu.");
-            return crow::response(200, "Sikayet cozuldu olarak isaretlendi.");
+            return crow::response(200, "Sikayet cozumlendi olarak isaretlendi.");
         }
         return crow::response(500);
             });

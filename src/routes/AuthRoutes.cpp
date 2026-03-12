@@ -204,27 +204,4 @@ void AuthRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
         }
         return crow::response(500);
             });
-    // ==========================================================
-    // ÇIKIŞ YAP (LOGOUT) - KULLANICIYI ANINDA OFFLINE YAPAR
-    // ==========================================================
-    CROW_ROUTE(app, "/api/auth/logout").methods("POST"_method)
-        ([&db](const crow::request& req) {
-
-        // Sadece giriş yapmış (token'ı olan) kullanıcılar çıkış yapabilir
-        if (!Security::checkAuth(req, db, false)) return crow::response(401, "Gecersiz veya eksik token.");
-
-        std::string userId = Security::getUserIdFromHeader(req);
-
-        // 1. Kullanıcıyı anında Offline durumuna çek
-        if (db.updateUserStatus(userId, "Offline")) {
-
-            // 2. Sistem loglarına (Audit) kaydet
-            db.logAction(userId, "LOGOUT", userId, "Kullanici guvenli cikis (Logout) yapti.");
-
-            // Not: Frontend bu 200 OK yanıtını alınca kendi LocalStorage/Cookie'sindeki JWT'yi silmelidir.
-            return crow::response(200, "Basariyla cikis yapildi. Status: Offline.");
-        }
-
-        return crow::response(500, "Cikis islemi sirasinda sunucu hatasi.");
-            });
 }

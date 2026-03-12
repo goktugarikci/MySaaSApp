@@ -97,7 +97,7 @@ bool show_audit_logs = false;
 std::string active_stats_id = "";
 
 // =============================================================
-// MUHTEŞEM ENDPOINT KÜTÜPHANESİ (GÜNCELLENDİ - V3.0)
+// MUHTEŞEM ENDPOINT KÜTÜPHANESİ 
 // =============================================================
 int api_method_idx = 0;
 const char* api_methods[] = { "GET", "POST", "PUT", "DELETE" };
@@ -108,139 +108,109 @@ int api_last_status = 0; std::atomic<bool> is_api_loading(false);
 std::mutex api_response_mutex; std::string thread_response_temp; bool new_response_ready = false;
 
 struct EndpointDef { const char* method; const char* url; const char* desc; const char* body; };
-
 EndpointDef predefined_endpoints[] = {
-    // --- 1. KİMLİK DOĞRULAMA VE GÜVENLİK (AUTH) ---
-    {"POST", "/api/auth/login", "Giris Yap (Login) -> JWT Token Doner", "{\n  \"email\": \"admin@mysaas.com\",\n  \"password\": \"admin123\"\n}"},
-    {"POST", "/api/auth/register", "Yeni Hesap Olustur", "{\n  \"name\": \"Test Uye\",\n  \"email\": \"test@test.com\",\n  \"password\": \"123456\"\n}"},
-    {"POST", "/api/auth/forgot-password", "Sifre Sifirlama Kodu Gonder", "{\n  \"email\": \"test@test.com\"\n}"},
-    {"POST", "/api/auth/reset-password", "Kodu Kullanarak Sifre Degistir", "{\n  \"token\": \"TOKEN_KODU\",\n  \"new_password\": \"yeniSifre123\"\n}"},
-    {"POST", "/api/auth/2fa/enable", "Iki Asamali Dogrulamayi (2FA) Ac", ""},
-    {"DELETE", "/api/auth/2fa/disable", "Iki Asamali Dogrulamayi Kapat", ""},
-
-    // --- 2. KULLANICI PROFİLİ VE ARAMA (USERS) ---
-    {"GET", "/api/users/me", "Profilimi ve Ayarlarimi Getir", ""},
-    {"PUT", "/api/users/me", "Profilimi Guncelle", "{\n  \"name\": \"Yeni İsim\",\n  \"status\": \"Mesgul\"\n}"},
-    {"PUT", "/api/users/me/avatar", "Avatarimi Guncelle", "{\n  \"avatar_url\": \"https://sitem.com/resim.png\"\n}"},
-    {"DELETE", "/api/users/me", "Hesabimi Kalici Olarak Sil", ""},
-    {"GET", "/api/users/search?q=goktug", "Sistemde Kullanici Ara (Arama Motoru)", ""},
-    {"POST", "/api/user/ping", "Aktifligimi (Son Gorulme) Guncelle", ""},
-    {"POST", "/api/users/USER_ID/notes", "Bir Kullaniciya Ozel Not Ekle", "{\n  \"note\": \"Bu kisi ekip lideri.\"\n}"},
-    {"GET", "/api/users/USER_ID/notes", "Kullaniciya Ekledigim Notu Oku", ""},
-
-    // --- 3. ARKADAŞLIK VE BLOKLAMA (FRIENDS) ---
-    {"GET", "/api/friends", "Kabul Edilmis Arkadas Listem", ""},
-    {"GET", "/api/friends/requests", "Gelen ve Giden Arkadaslik Istekleri", ""},
-    {"POST", "/api/friends/request", "Yeni Arkadaslik Istegi Gonder", "{\n  \"target_id\": \"HEDEF_USER_ID\"\n}"},
-    {"PUT", "/api/friends/requests/REQ_ID", "Istegi Kabul veya Red Et", "{\n  \"status\": \"accepted\"\n}"},
+    {"POST", "/api/auth/login", "Giris Yap (Login) -> Token Doner", "{\n  \"email\": \"admin@mysaas.com\",\n  \"password\": \"admin123\"\n}"},
+    {"POST", "/api/auth/register", "Yeni Kayit Ol", "{\n  \"name\": \"Yeni Uye\",\n  \"email\": \"test@test.com\",\n  \"password\": \"123456\"\n}"},
+    {"POST", "/api/auth/forgot-password", "Sifremi Unuttum Kodu Gonder", "{\n  \"email\": \"admin@mysaas.com\"\n}"},
+    {"POST", "/api/auth/reset-password", "Sifreyi Sifirla", "{\n  \"token\": \"TOKEN_KODU\",\n  \"new_password\": \"yeni123\"\n}"},
+    {"GET", "/api/users/me", "Kendi Profilimi Getir", ""},
+    {"PUT", "/api/users/me", "Profilimi Guncelle", "{\n  \"name\": \"Super Admin\",\n  \"status\": \"Online\"\n}"},
+    {"DELETE", "/api/users/me", "Hesabimi Tamamen Sil", ""},
+    {"PUT", "/api/users/me/avatar", "Avatar URL'sini Guncelle", "{\n  \"avatar_url\": \"https://sitem.com/resim.png\"\n}"},
+    {"GET", "/api/users/search?q=Admin", "Kullanici Ara (Min 3 Karakter)", ""},
+    {"POST", "/api/user/ping", "Aktiflik Bildir (Ping - Son Gorulme)", ""},
+    {"POST", "/api/user/status", "Manuel Durum Degistir", "{\n  \"status\": \"Rahatsiz Etmeyin\"\n}"},
+    {"GET", "/api/friends", "Arkadas Listesini Getir", ""},
+    {"GET", "/api/friends/requests", "Gelen Arkadaslik Istekleri", ""},
+    {"POST", "/api/friends/request", "Arkadaslik Istegi Gonder", "{\n  \"target_id\": \"HEDEF_ID\"\n}"},
+    {"PUT", "/api/friends/requests/REQ_ID", "Istegi Kabul / Red Et", "{\n  \"status\": \"accepted\"\n}"},
     {"DELETE", "/api/friends/FRIEND_ID", "Arkadasliktan Cikar", ""},
-    {"GET", "/api/friends/blocks", "Engelledigim Kullanicilar", ""},
-    {"POST", "/api/friends/blocks", "Kullaniciyi Engelle", "{\n  \"target_id\": \"HEDEF_USER_ID\"\n}"},
+    {"GET", "/api/friends/blocks", "Engellenenleri Listele", ""},
+    {"POST", "/api/friends/blocks", "Kullaniciyi Engelle", "{\n  \"target_id\": \"HEDEF_ID\"\n}"},
     {"DELETE", "/api/friends/blocks/TARGET_ID", "Kullanici Engelini Kaldir", ""},
-
-    // --- 4. BİLDİRİMLER (NOTIFICATIONS) ---
-    {"GET", "/api/notifications", "Tüm Bildirimlerimi Getir", ""},
-    {"PUT", "/api/notifications/NOTIF_ID/read", "Bildirimi Okundu Olarak Isaretle", ""},
-
-    // --- 5. SUNUCU (WORKSPACE) YÖNETİMİ ---
+    {"GET", "/api/users/me/server-invites", "Bekleyen Sunucu Davetleri", ""},
+    {"GET", "/api/notifications", "Genel Bildirimleri Getir", ""},
+    {"PUT", "/api/notifications/NOTIF_ID/read", "Bildirimi Okundu Isaretle", ""},
+    {"POST", "/api/users/dm", "Ozel Mesaj (DM) Kanali Baslat", "{\n  \"target_id\": \"HEDEF_ID\"\n}"},
+    {"DELETE", "/api/users/dm/CHANNEL_ID", "DM Gecmisini ve Kanali Sil", ""},
     {"GET", "/api/servers", "Katildigim Sunuculari Listele", ""},
-    {"POST", "/api/servers", "Yeni Bir Sunucu Olustur", "{\n  \"name\": \"Yazilim Ekibi\"\n}"},
-    {"GET", "/api/servers/SERVER_ID/settings", "Sunucu Ayarlarini Getir", ""},
-    {"PUT", "/api/servers/SERVER_ID/settings", "Sunucu Ayarlarini Guncelle (JSON)", "{\n  \"icon\": \"url\",\n  \"rules\": \"Kurallar\"\n}"},
-    {"PUT", "/api/servers/SERVER_ID", "Sunucu Adini Degistir (Sadece Kurucu)", "{\n  \"name\": \"Yeni Sunucu Adi\"\n}"},
-    {"DELETE", "/api/servers/SERVER_ID", "Sunucuyu Tamamen Sil (Sadece Kurucu)", ""},
-    {"POST", "/api/servers/SERVER_ID/invites", "Sunucu Icin Davet Linki Uret", ""},
-    {"POST", "/api/servers/join/INVITE_CODE", "Davet Kodu Ile Sunucuya Katil", ""},
+    {"POST", "/api/servers", "Yeni Sunucu (Workspace) Olustur", "{\n  \"name\": \"SaaS Gelistirme Ekibi\"\n}"},
+    {"PUT", "/api/servers/SERVER_ID", "Sunucu Adini Degistir (Kurucu)", "{\n  \"name\": \"Yeni Ad\"\n}"},
+    {"DELETE", "/api/servers/SERVER_ID", "Sunucuyu Tamamen Sil (Kurucu)", ""},
+    {"POST", "/api/servers/SERVER_ID/invites", "Sunucu Davet Linki Uret", ""},
+    {"POST", "/api/servers/join/INVITE_CODE", "Davet Koduyla Sunucuya Katil", ""},
     {"DELETE", "/api/servers/SERVER_ID/leave", "Sunucudan Ayril", ""},
-
-    // --- 6. SUNUCU ÜYELERİ VE MODERASYON ---
-    {"GET", "/api/servers/SERVER_ID/members", "Sunucudaki Tum Uyeleri Listele", ""},
     {"DELETE", "/api/servers/SERVER_ID/members/USER_ID", "Uyeyi Sunucudan At (Kick)", ""},
-    {"POST", "/api/servers/SERVER_ID/members/USER_ID/timeout", "Uyeyi Sustur (Timeout)", "{\n  \"duration_minutes\": 60\n}"},
-
-    // --- 7. SUNUCU KANALLARI VE KATEGORİLER ---
-    {"GET", "/api/servers/SERVER_ID/categories", "Sunucunun Kategorilerini (Klasör) Getir", ""},
-    {"POST", "/api/servers/SERVER_ID/categories", "Yeni Kategori Olustur", "{\n  \"name\": \"Sohbet Kanallari\",\n  \"position\": 0\n}"},
-    {"GET", "/api/servers/SERVER_ID/channels", "Sunucunun Kanallarini Getir", ""},
-    {"POST", "/api/servers/SERVER_ID/channels", "Yeni Kanal Olustur", "{\n  \"name\": \"genel\",\n  \"type\": 1,\n  \"is_private\": false\n}"},
+    {"GET", "/api/servers/SERVER_ID/channels", "Sunucu Kanallarini Getir", ""},
+    {"POST", "/api/servers/SERVER_ID/channels", "Yeni Kanal Ekle", "{\n  \"name\": \"genel-sohbet\",\n  \"type\": 1,\n  \"is_private\": false\n}"},
     {"PUT", "/api/channels/CHANNEL_ID", "Kanal Adini Degistir", "{\n  \"name\": \"duyurular\"\n}"},
-    {"PUT", "/api/channels/CHANNEL_ID/position", "Kanali Yukari/Asagi Tasi (Siralama)", "{\n  \"position\": 2\n}"},
     {"DELETE", "/api/channels/CHANNEL_ID", "Kanali Sil", ""},
-
-    // --- 8. YENİ MİMARİ: ROL VE YETKİ YÖNETİMİ (SERVER_ROUTES STANDARDI) ---
-    {"GET", "/api/servers/SERVER_ID/roles", "Sunucudaki Tum Rolleri Getir", ""},
-    {"POST", "/api/servers/SERVER_ID/roles", "Yeni Rol Olustur", "{\n  \"name\": \"Moderator\",\n  \"color\": \"#FF0000\",\n  \"permissions\": 1024\n}"},
-    {"PUT", "/api/servers/SERVER_ID/roles/ROLE_ID", "Rolu Guncelle", "{\n  \"name\": \"Super Mod\",\n  \"color\": \"#00FF00\",\n  \"permissions\": 2048\n}"},
-    {"DELETE", "/api/servers/SERVER_ID/roles/ROLE_ID", "Rolu Sil", ""},
-    {"PUT", "/api/servers/SERVER_ID/members/USER_ID/roles/ROLE_ID", "Uyeye Rol Ata", ""},
-    {"DELETE", "/api/servers/SERVER_ID/members/USER_ID/roles/ROLE_ID", "Uyeden Rolu Geri Al", ""},
-
-    // --- 9. YENİ MİMARİ: ŞİFRELİ SOHBET VE DM (JSON MOTORU) ---
-    {"GET", "/api/chat/history/TARGET_ID", "Sohbet Gecmisini Oku (DM veya Kanal ID)", ""},
-    {"POST", "/api/chat/TARGET_ID/messages", "Kanal veya DM'ye Mesaj Gonder", "{\n  \"content\": \"Merhaba!\",\n  \"content_type\": \"text\",\n  \"media_path\": \"\"\n}"},
-    {"POST", "/api/chat/TARGET_ID/read", "Mesaji Okundu Olarak Isaretle (Cursor)", "{\n  \"message_id\": \"SON_OKUNAN_MESAJ_ID\"\n}"},
-    {"POST", "/api/chat/TARGET_ID/typing", "Kanala Veya Karsiya 'Yaziyor...' Sinyali At", ""},
-    {"DELETE", "/api/chat/TARGET_ID/messages/MSG_ID", "Mesaji Herkesten Sil (Recall)", ""},
-
-    // --- 10. MESAJ ETKİLEŞİMLERİ (THREAD, EMOJİ, PİN) ---
-    {"GET", "/api/messages/MSG_ID/thread", "Mesajin Alt Yanitlarini (Thread) Getir", ""},
-    {"POST", "/api/messages/MSG_ID/thread", "Mesaja Alt Yanit (Thread) Yaz", "{\n  \"content\": \"Buna katiliyorum.\"\n}"},
+    {"GET", "/api/channels/CHANNEL_ID/messages", "Kanal Mesajlarini Cek", ""},
+    {"POST", "/api/channels/CHANNEL_ID/messages", "Kanala Mesaj Gonder (Medyali)", "{\n  \"content\": \"Merhaba!\",\n  \"attachment_url\": \"\"\n}"},
+    {"PUT", "/api/messages/MSG_ID", "Mesaji Duzenle", "{\n  \"content\": \"Duzenlenmis mesaj\"\n}"},
+    {"DELETE", "/api/messages/MSG_ID", "Kendi Mesajimi Sil", ""},
     {"POST", "/api/messages/MSG_ID/reactions", "Mesaja Emoji/Tepki Ekle", "{\n  \"reaction\": \"👍\"\n}"},
     {"DELETE", "/api/messages/MSG_ID/reactions/EMOJI", "Eklenen Emojiyi Geri Al", ""},
-    {"PUT", "/api/messages/MSG_ID/pin", "Mesaji Sabitle (Pin) Veya Kaldir", "{\n  \"is_pinned\": true\n}"},
-    {"POST", "/api/messages/MSG_ID/save", "Mesaji Kisisel Favorilerime Ekle", ""},
-    {"GET", "/api/users/me/saved-messages", "Kaydettigim (Favori) Mesajlari Getir", ""},
-
-    // --- 11. DOSYA VE MEDYA YÜKLEME (MULTIPART) ---
-    {"POST", "/api/upload", "Sisteme Dosya/Resim Yukle (Postman'da Form-Data kullanin)", "DIKKAT: JSON yerine multipart/form-data kullanilmalidir.\nParametreler:\ntype: \"avatars\", \"chats\" veya \"kanban\"\nfile: <Dosya Secin>"},
-
-    // --- 12. WEBRTC SESLİ VE GÖRÜNTÜLÜ SOHBET ODALARI ---
-    {"GET", "/api/webrtc/ice-servers", "Guncel STUN/TURN (ICE) Sunucularini Al", ""},
-    {"POST", "/api/channels/CHANNEL_ID/voice/join", "Sesli Odaya Katil (LiveKit Token Doner)", ""},
-    {"DELETE", "/api/channels/CHANNEL_ID/voice/join", "Sesli Odadan Cikis Yap", ""},
-    {"PUT", "/api/channels/CHANNEL_ID/voice/status", "Kamera/Mikrofon Durumumu Degistir", "{\n  \"is_muted\": false,\n  \"is_camera_on\": true,\n  \"is_screen_sharing\": false\n}"},
-    {"GET", "/api/channels/CHANNEL_ID/voice/members", "Odadaki Uyeleri ve Yayin Durumlarini Goster", ""},
-    {"POST", "/api/webrtc/metrics", "Arama Kalite Metriklerini (QoS) Sunucuya Ilet", "{\n  \"channel_id\": \"KANAL_ID\",\n  \"latency\": 120,\n  \"packet_loss\": 1.5,\n  \"resolution\": \"1080p\"\n}"},
-
-    // --- 13. KANBAN VE GÖREV YÖNETİMİ (TRELLO BENZERİ) ---
-    {"GET", "/api/boards/CHANNEL_ID", "Kanban Panosunu (Sutunlari) Getir", ""},
-    {"POST", "/api/boards/CHANNEL_ID/lists", "Pano Icin Yeni Sutun Olustur", "{\n  \"title\": \"Yapilacaklar\"\n}"},
-    {"PUT", "/api/lists/LIST_ID", "Sutun Adini veya Sirasini Degistir", "{\n  \"title\": \"Guncel Ad\",\n  \"position\": 1\n}"},
+    {"GET", "/api/messages/MSG_ID/thread", "Mesajin Alt Yanitlarini (Thread) Getir", ""},
+    {"POST", "/api/messages/MSG_ID/thread", "Mesaja Alt Yanit (Thread) Gonder", "{\n  \"content\": \"Bu mesaja katiliyorum.\"\n}"},
+    {"GET", "/api/boards/CHANNEL_ID", "Kanban Panosunu ve Listeleri Getir", ""},
+    {"POST", "/api/boards/CHANNEL_ID/lists", "Yeni Sütun (Liste) Ekle", "{\n  \"title\": \"Yapilacaklar\"\n}"},
+    {"PUT", "/api/lists/LIST_ID", "Sutun Adini / Pozisyonunu Degistir", "{\n  \"title\": \"Guncel Ad\",\n  \"position\": 1\n}"},
     {"DELETE", "/api/lists/LIST_ID", "Sutunu ve Icindeki Kartlari Sil", ""},
     {"POST", "/api/lists/LIST_ID/cards", "Sutuna Yeni Gorev Karti Ekle", "{\n  \"title\": \"Arayuz Fix\",\n  \"description\": \"Detay\",\n  \"priority\": 2\n}"},
-    {"PUT", "/api/cards/CARD_ID", "Gorev Kartini Duzenle", "{\n  \"title\": \"Guncel Baslik\",\n  \"description\": \"Yeni detay\",\n  \"priority\": 3\n}"},
+    {"PUT", "/api/cards/CARD_ID", "Gorevi / Karti Duzenle", "{\n  \"title\": \"Guncel Baslik\",\n  \"description\": \"Yeni detay\",\n  \"priority\": 3\n}"},
     {"DELETE", "/api/cards/CARD_ID", "Gorev Kartini Sil", ""},
     {"PUT", "/api/cards/CARD_ID/move", "Gorevi Baska Sutuna Tasi (Drag&Drop)", "{\n  \"new_list_id\": \"HEDEF_SUTUN_ID\",\n  \"new_position\": 0\n}"},
     {"PUT", "/api/cards/CARD_ID/status", "Gorevi Tamamlandi Isaretle", "{\n  \"is_completed\": true\n}"},
-    {"PUT", "/api/cards/CARD_ID/assign", "Goreve Sorumlu Kisi Ata", "{\n  \"assignee_id\": \"USER_ID\"\n}"},
-    {"PUT", "/api/cards/CARD_ID/deadline", "Goreve Bitis Tarihi (Deadline) Ekle", "{\n  \"date\": \"2026-12-31\"\n}"},
-    {"POST", "/api/cards/CARD_ID/labels", "Goreve Renkli Etiket Ekle", "{\n  \"text\": \"ACIL\",\n  \"color\": \"#FF5555\"\n}"},
-    {"POST", "/api/cards/CARD_ID/checklists", "Karta Alt Gorev (Checklist) Ekle", "{\n  \"content\": \"Testleri tamamla\"\n}"},
-    {"GET", "/api/cards/CARD_ID/checklists", "Kartin Alt Gorevlerini Listele", ""},
-    {"PUT", "/api/checklists/ITEM_ID/toggle", "Alt Gorevi Tikli (Yapildi) Yap", "{\n  \"is_completed\": true\n}"},
-    {"POST", "/api/cards/CARD_ID/comments", "Karta Yorum Ekle", "{\n  \"content\": \"Bu gorev acildir!\"\n}"},
-    {"GET", "/api/cards/CARD_ID/activity", "Kartin Gecmis Loglarini Getir", ""},
-
-    // --- 14. YÖNETİCİ (SUPER ADMIN) VE MODERASYON PANELİ ---
-    {"GET", "/api/admin/stats", "Ana Sistem Istatistikleri", ""},
-    {"GET", "/api/admin/users", "Sistemdeki Tum Kullanicilar", ""},
-    {"GET", "/api/admin/servers", "Sistemdeki Tum Sunucular", ""},
-    {"GET", "/api/admin/logs", "Sistem Denetim (Audit) Loglari", ""},
-    {"POST", "/api/reports", "Kullanici/Mesaj Sikayet Et", "{\n  \"content_id\": \"HEDEF_ID\",\n  \"type\": \"USER\",\n  \"reason\": \"Kural Ihlali\"\n}"},
-    {"GET", "/api/admin/reports", "Aktif Sikayetleri (Raporlari) Listele", ""},
-    {"PUT", "/api/admin/reports/REPORT_ID", "Sikayeti Cozuldu Olarak Kapat", ""},
-    {"POST", "/api/admin/ban", "Kullaniciyi Sistemden Yasakla (Ban)", "{\n  \"user_id\": \"USER_ID\",\n  \"reason\": \"Spam\"\n}"},
-    {"POST", "/api/admin/unban", "Kullanicinin Yasagini Kaldir", "{\n  \"user_id\": \"USER_ID\"\n}"},
-    {"GET", "/api/admin/banlist", "Yasakli (Banlanmis) Kullanici Listesi", ""},
-    {"GET", "/api/admin/chat/history/USER_A_ID/USER_B_ID", "Iki Kullanici Arasindaki Sohbeti Oku (Zorunlu Gözetim)", ""},
-    {"DELETE", "/api/admin/chat/USER_A_ID/USER_B_ID/messages/MSG_ID", "Kullanicilarin Mesajini Zorla Sil", ""},
-
-    // --- 15. ÖDEME VE ABONELİK (SAAS) ---
+    {"PUT", "/api/cards/CARD_ID/assign", "Goreve Sorumlu Kisi Ata (Assignee)", "{\n  \"assignee_id\": \"USER_ID\"\n}"},
+    {"POST", "/api/cards/CARD_ID/comments", "Karta Yorum Ekle", "{\n  \"content\": \"Bu islem acildir!\"\n}"},
+    {"DELETE", "/api/comments/COMMENT_ID", "Kart Yorumunu Sil", ""},
+    {"GET", "ws://localhost:8080/ws/chat", "Genel Chat & Kanban Bildirim Soketi", ""},
+    {"GET", "ws://localhost:8080/ws/video-call", "Goruntulu/Sesli Arama Sinyal Soketi", ""},
+    {"POST", "/api/upload", "Dosya Yukle (Resim/PDF - Multipart Data)", ""},
+    {"GET", "/api/admin/reports", "Aktif Kullanici Sikayetlerini Listele", ""},
+    {"POST", "/api/reports", "Baskasini Sikayet Et", "{\n  \"content_id\": \"HEDEF_ID\",\n  \"type\": \"USER\",\n  \"reason\": \"Kufur/Hakaret\"\n}"},
+    {"GET", "/api/admin/banlist", "Banlanmis Kullanici Listesi", ""},
     {"POST", "/api/payments/checkout", "Yeni Abonelik / Odeme Baslat", "{\n  \"amount\": 99.99,\n  \"currency\": \"TRY\"\n}"},
-
-    // --- 16. GERÇEK ZAMANLI (REAL-TIME) WEBSOCKET BAĞLANTILARI ---
-    {"GET", "ws://localhost:8080/ws/chat", "Canli Mesajlasma ve Bildirim Soketi (Sadece Baglanti, JSON Atilmaz)", ""},
-    {"GET", "ws://localhost:8080/ws/video-call", "Goruntulu Arama Sinyal Soketi (Ringing/WebRTC)", ""}
+    {"GET", "/api/channels/CHANNEL_ID/messages/search?q=aranan", "Mesajlarda Arama Yap", ""},
+    {"PUT", "/api/messages/MSG_ID/pin", "Mesaji Sabitle (Pin)", "{\n  \"is_pinned\": true\n}"},
+    {"POST", "/api/servers/SERVER_ID/roles", "Yeni Rol Olustur", "{\n  \"name\": \"Moderator\",\n  \"color\": \"#FF0000\",\n  \"permissions\": 1024\n}"},
+    {"POST", "/api/servers/SERVER_ID/members/USER_ID/roles", "Uyeye Rol Ata", "{\n  \"role_id\": \"ROLE_ID\"\n}"},
+    {"PUT", "/api/cards/CARD_ID/deadline", "Goreve Bitis Tarihi Ekle", "{\n  \"date\": \"2026-12-31\"\n}"},
+    {"POST", "/api/cards/CARD_ID/labels", "Goreve Etiket Ekle", "{\n  \"text\": \"ACIL\",\n  \"color\": \"#FF5555\"\n}"},
+    {"GET", "/api/admin/logs", "Sistem Denetim Loglarini (Audit) Getir", ""},
+    {"PUT", "/api/servers/SERVER_ID/roles/ROLE_ID", "Rolu Guncelle", "{\n  \"name\": \"Super Mod\",\n  \"color\": \"#00FF00\",\n  \"permissions\": 2048\n}"},
+    {"DELETE", "/api/servers/SERVER_ID/roles/ROLE_ID", "Rolu Tamamen Sil", ""},
+    {"DELETE", "/api/servers/SERVER_ID/members/USER_ID/roles/ROLE_ID", "Uyeden Rolu Al", ""},
+    {"PUT", "/api/admin/reports/REPORT_ID", "Sikayeti Cozuldu Isaretle", ""},
+    // --- 13. AŞAMA 2 (DISCORD UX - KULLANICI DENEYİMİ) ---
+    {"POST", "/api/users/USER_ID/notes", "Kullaniciya Ozel Not Ekle", "{\n  \"note\": \"Bu kisi iyi bir frontendci.\"\n}"},
+    {"GET", "/api/users/USER_ID/notes", "Kullaniciya Eklenen Notu Getir", ""},
+    {"POST", "/api/messages/MSG_ID/save", "Mesaji Kaydedilenlere Ekle", ""},
+    {"GET", "/api/users/me/saved-messages", "Kaydedilen Mesajlarimi Getir", ""},
+    {"PUT", "/api/channels/CHANNEL_ID/read", "Kanalda Okundu Bilgisi Gonder", "{\n  \"message_id\": \"SON_OKUNAN_MESAJ_ID\"\n}"},
+    {"POST", "/api/channels/CHANNEL_ID/typing", "Kanala 'Yaziyor...' Sinyali Gonder", ""},
+    // --- 14. AŞAMA 3 (KATEGORİLER, SIRALAMA VE GÜVENLİK) ---
+    {"POST", "/api/servers/SERVER_ID/categories", "Sunucuya Kategori (Klasör) Ekle", "{\n  \"name\": \"Yazilim Departmani\",\n  \"position\": 1\n}"},
+    {"GET", "/api/servers/SERVER_ID/categories", "Sunucu Kategorilerini Listele", ""},
+    {"PUT", "/api/channels/CHANNEL_ID/position", "Kanali Yukari/Asagi Tasi (Siralama)", "{\n  \"position\": 2\n}"},
+    {"POST", "/api/servers/SERVER_ID/members/USER_ID/timeout", "Uyeyi Sustur (Mute / Timeout)", "{\n  \"duration_minutes\": 60\n}"},
+    {"POST", "/api/auth/2fa/enable", "Iki Asamali Dogrulamayi (2FA) Aktif Et", ""},
+    // --- 15. AŞAMA 4 (GELİŞMİŞ KANBAN TRELLO+) ---
+    {"POST", "/api/cards/CARD_ID/checklists", "Karta Alt Gorev (Checklist) Ekle", "{\n  \"content\": \"Veritabani testlerini tamamla\"\n}"},
+    {"GET", "/api/cards/CARD_ID/checklists", "Kartin Alt Gorevlerini Getir", ""},
+    {"PUT", "/api/checklists/ITEM_ID/toggle", "Alt Gorevi Tamamlandi (Tikli) Yap", "{\n  \"is_completed\": true\n}"},
+    {"GET", "/api/cards/CARD_ID/activity", "Kartin Gecmis Hareketlerini (Log) Getir", ""},
+    // --- EKSTRA: KULLANICI AYARLARI ---
+    {"DELETE", "/api/auth/2fa/disable", "Iki Asamali Dogrulamayi (2FA) Kapat", ""},
+    {"DELETE", "/api/users/me/subscription", "Aktif Aboneligi Iptal Et (Free'ye Don)", ""},
+    {"POST", "/api/channels/CHANNEL_ID/voice/join", "Sesli Odaya Katil", ""},
+    {"DELETE", "/api/channels/CHANNEL_ID/voice/join", "Sesli Odadan Ayril", ""},
+    {"PUT", "/api/channels/CHANNEL_ID/voice/status", "Kamera/Mikrofon Durumunu Degistir", "{\n  \"is_muted\": false,\n  \"is_camera_on\": true,\n  \"is_screen_sharing\": false\n}"},
+    {"GET", "/api/channels/CHANNEL_ID/voice/members", "Odadaki Uyeleri ve Yayin Durumlarini Getir", ""},
+    // --- 18. WEBRTC VE GÖRÜNTÜLÜ ARAMA OPTİMİZASYONU ---
+    {"GET", "/api/webrtc/ice-servers", "Guncel STUN/TURN (ICE) Sunucularini Getir", ""},
+    {"POST", "/api/webrtc/metrics", "Goruntulu Arama Kalite Metriklerini (QoS) Gonder", "{\n  \"channel_id\": \"KANAL_ID\",\n  \"latency\": 120,\n  \"packet_loss\": 1.5,\n  \"resolution\": \"1080p\"\n}"}
 };
 
 // =============================================================

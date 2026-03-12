@@ -1,36 +1,31 @@
 #pragma once
 #include <string>
-#include <nlohmann/json.hpp>
-
+#include <vector>
+#include <filesystem>
+#include <crow/json.h>
 class FileManager {
 public:
-    // Gerekli ana klasörleri (uploads, sohbet, grups vb.) oluşturur
+    // Dosya türleri
+    enum class FileType {
+        AVATAR,
+        ATTACHMENT
+    };
+
+    // Klasörleri oluşturur (Program açılırken çağırılmalı)
     static void initDirectories();
 
-    // ==========================================================
-    // YENİ MİMARİ: MESAJ KAYDETME FONKSİYONLARI
-    // ==========================================================
+    // Dosyayı kaydeder ve erişim URL'sini döner
+    // part_content: Dosyanın ham verisi
+    // filename: Orijinal dosya adı
+    static std::string saveFile(const std::string& part_content, const std::string& original_filename, FileType type);
 
-    // Birebir (DM) mesajları kaydeder
-    static bool savePrivateMessage(const std::string& senderId, const std::string& targetId, const std::string& encryptedMsg, const std::string& contentType);
+    // Dosyayı okur (Crow'un dosyayı sunması için)
+    static std::string readFile(const std::string& filepath);
 
-    // Grup/Sunucu kanallarındaki mesajları kaydeder
-    static bool saveGroupMessage(const std::string& groupId, const std::string& channelId, const std::string& senderId, const std::string& encryptedMsg, const std::string& contentType);
-
-    // ==========================================================
-    // YENİ MİMARİ: GEÇMİŞİ GETİRME FONKSİYONLARI
-    // ==========================================================
-
-    // İki kullanıcı arasındaki özel sohbet geçmişini getirir
-    static std::string getPrivateChatHistory(const std::string& user1, const std::string& user2);
-
-    // Bir grubun belirli bir kanalındaki sohbet geçmişini getirir
-    static std::string getGroupChatHistory(const std::string& groupId, const std::string& channelId);
-
-    // ==========================================================
-    // EKSTRALAR (SİLME / GİZLEME)
-    // ==========================================================
-
-    // Bir mesajı global olarak "Silindi" durumuna çeker
-    static bool toggleMessageVisibility(const std::string& contextId, const std::string& msgId, bool isGroup, const std::string& groupId = "");
+    // 100 MB kontrolü (100 * 1024 * 1024 byte)
+    static const size_t MAX_FILE_SIZE = 104857600;
 };
+// Sınıfınızın public: kısmına eklenecekler
+static std::string getChatFilePath(const std::string& userA, const std::string& userB);
+static bool saveChatMessage(const std::string& userA, const std::string& userB, const crow::json::wvalue& messageObj);
+static crow::json::wvalue getChatHistory(const std::string& userA, const std::string& userB);

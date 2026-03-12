@@ -1,19 +1,19 @@
 #pragma once
 #include <string>
-#include <crow/json.h>
+#include <crow.h>
 
 struct FriendRequest {
-    std::string id;      // <-- EKSİKLER
-    std::string name;    // <-- EKSİKLER
-    std::string email;   // <-- EKSİKLER
-    std::string type;    // <-- incoming veya outgoing
+    std::string requesterId;
+    std::string requesterName;
+    std::string requesterAvatar;
+    std::string createdAt;
 
     crow::json::wvalue toJson() const {
-        crow::json::wvalue j;
-        j["id"] = id;
-        j["name"] = name;
-        j["email"] = email;
-        j["type"] = type;
-        return j;
+        crow::json::wvalue json;
+        json["requester_id"] = requesterId;
+        json["requester_name"] = requesterName;
+        json["requester_avatar"] = requesterAvatar;
+        json["created_at"] = createdAt;
+        return json;
     }
 };

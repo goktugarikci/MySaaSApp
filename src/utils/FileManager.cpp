@@ -1,240 +1,143 @@
 #include "FileManager.h"
-#include "Security.h"
 #include <fstream>
-#include <filesystem>
-#include <algorithm>
+#include <random>
 #include <sstream>
-#include <ctime>
 #include <iostream>
-
+#include <chrono>
+#include <sstream>
 namespace fs = std::filesystem;
 
+// Rastgele dosya ismi üretici (UUID benzeri)
+std::string generateUniqueFilename(const std::string& extension) {
+    auto now = std::chrono::system_clock::now().time_since_epoch().count();
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dis(0, 9999);
+
+    std::stringstream ss;
+    ss << now << "_" << dis(gen) << extension;
+    return ss.str();
+}
+
 void FileManager::initDirectories() {
-    try {
-        // Yeni sisteme uygun klasör ağacı
-        std::vector<std::string> dirs = {
-            "uploads",
-            "uploads/avatars",
-            "uploads/kanban",
-            "uploads/sohbet", // DM (Birebir) mesajlar için
-            "uploads/grups"   // Grup/Sunucu mesajları için
-        };
-
-        for (const auto& dir : dirs) {
-            if (!fs::exists(dir)) {
-                fs::create_directories(dir);
-            }
-        }
-    }
-    catch (...) {
-        // Hata loglanabilir
-    }
+    if (!fs::exists("public/uploads/avatars")) fs::create_directories("public/uploads/avatars");
+    if (!fs::exists("public/uploads/attachments")) fs::create_directories("public/uploads/attachments");
 }
 
-// ==========================================================
-// BİREBİR (DM) SOHBET KAYDEDİCİ
-// ==========================================================
-bool FileManager::savePrivateMessage(const std::string& senderId, const std::string& targetId, const std::string& encryptedMsg, const std::string& contentType) {
-    try {
-        // 1. Klasör adını alfabetik sıraya göre deterministik olarak belirle
-        std::string first = (senderId < targetId) ? senderId : targetId;
-        std::string second = (senderId < targetId) ? targetId : senderId;
-
-        std::string h1 = Security::hashString(first);
-        std::string h2 = Security::hashString(second);
-
-        std::string folderPath = "uploads/sohbet/Chat_" + h1 + "_" + h2;
-
-        if (!fs::exists(folderPath)) {
-            fs::create_directories(folderPath);
-        }
-
-        std::string filePath = folderPath + "/history.json";
-        nlohmann::json history = nlohmann::json::array();
-
-        // 2. Mevcut geçmişi oku
-        if (fs::exists(filePath)) {
-            std::ifstream inFile(filePath);
-            if (inFile.is_open()) {
-                try { inFile >> history; }
-                catch (...) { history = nlohmann::json::array(); }
-                inFile.close();
-            }
-        }
-
-        // 3. İstenen JSON Şemasına göre yeni nesneyi oluştur
-        nlohmann::json newMsg;
-        newMsg["MesajID"] = Security::generateId(18); // Silme/Düzenleme işlemleri için benzersiz ID
-        newMsg["gönderenID"] = senderId;
-        newMsg["alıcıID"] = targetId;
-        newMsg["Mesaj"] = encryptedMsg;
-        newMsg["MesajDurumuOkundu"] = false;
-        newMsg["MesajSilinmeDurumu"] = "Yok"; // "Kişiden", "Alıcıdan", "Global"
-        newMsg["MesajGönderimTarihi"] = std::to_string(std::time(nullptr));
-        newMsg["MesajEmoji"] = "null";
-        newMsg["MesajİçerikDurumu"] = contentType; // "Video", "Fotoğraf", "Text" vb.
-
-        history.push_back(newMsg);
-
-        // 4. Dosyaya yaz (Pretty Print 4 boşluk)
-        std::ofstream outFile(filePath);
-        if (!outFile.is_open()) return false;
-        outFile << history.dump(4);
-        outFile.close();
-
-        return true;
+std::string FileManager::saveFile(const std::string& part_content, const std::string& original_filename, FileType type) {
+    // 1. Boyut Kontrolü
+    if (part_content.size() > MAX_FILE_SIZE) {
+        throw std::runtime_error("Dosya boyutu 100 MB sinirini asiyor.");
     }
-    catch (...) {
-        return false;
+
+    // 2. Uzantıyı Al
+    std::string ext = fs::path(original_filename).extension().string();
+
+    // 3. Hedef Klasörü Belirle
+    std::string directory;
+    std::string url_prefix;
+
+    if (type == FileType::AVATAR) {
+        directory = "public/uploads/avatars/";
+        url_prefix = "/uploads/avatars/";
     }
+    else {
+        directory = "public/uploads/attachments/";
+        url_prefix = "/uploads/attachments/";
+    }
+
+    // 4. Benzersiz İsim Oluştur
+    std::string new_filename = generateUniqueFilename(ext);
+    std::string full_path = directory + new_filename;
+
+    // 5. Dosyayı Diske Yaz
+    std::ofstream out_file(full_path, std::ios::binary);
+    if (!out_file.is_open()) {
+        throw std::runtime_error("Dosya diske yazilamadi.");
+    }
+    out_file.write(part_content.data(), part_content.size());
+    out_file.close();
+
+    // 6. Web'den erişilecek yolu dön
+    return url_prefix + new_filename;
 }
 
-// ==========================================================
-// GRUP / SUNUCU SOHBET KAYDEDİCİ
-// ==========================================================
-bool FileManager::saveGroupMessage(const std::string& groupId, const std::string& channelId, const std::string& senderId, const std::string& encryptedMsg, const std::string& contentType) {
-    try {
-        // 1. Klasör yolunu belirle
-        std::string folderPath = "uploads/grups/" + groupId;
-        if (!fs::exists(folderPath)) {
-            fs::create_directories(folderPath);
-        }
+std::string FileManager::readFile(const std::string& filepath) {
+    std::ifstream ifs("public" + filepath, std::ios::binary);
+    if (!ifs.is_open()) return "";
 
-        std::string channelHash = Security::hashString(channelId);
-        std::string filePath = folderPath + "/" + channelHash + ".json";
+    std::ostringstream oss;
+    oss << ifs.rdbuf();
+    return oss.str();
+}
+// İki kullanıcı için benzersiz, alfabetik bir dosya adı üretir (Alice ve Bob / Bob ve Alice hep aynı dosyayı verir)
+std::string FileManager::getChatFilePath(const std::string& userA, const std::string& userB) {
+    std::string first = (userA < userB) ? userA : userB;
+    std::string second = (userA < userB) ? userB : userA;
 
-        nlohmann::json history = nlohmann::json::array();
-
-        // 2. Mevcut geçmişi oku
-        if (fs::exists(filePath)) {
-            std::ifstream inFile(filePath);
-            if (inFile.is_open()) {
-                try { inFile >> history; }
-                catch (...) { history = nlohmann::json::array(); }
-                inFile.close();
-            }
-        }
-
-        // 3. İstenen JSON Şemasına göre yeni grup mesajını oluştur
-        nlohmann::json newMsg;
-        newMsg["MesajID"] = Security::generateId(18);
-        newMsg["gönderenID"] = senderId;
-        newMsg["OkunduBilgisiKisi"] = nlohmann::json::array();
-        newMsg["okunmadıBilgisi"] = 0;
-        newMsg["Mesaj"] = encryptedMsg;
-        newMsg["MesajİçerikDurumu"] = contentType;
-        newMsg["MesajSilinmeDurumu"] = false; // Gruplarda silindi mi? true/false
-        newMsg["MesajEmoji"] = "null";
-        newMsg["MesajGönderimTarihi"] = std::to_string(std::time(nullptr));
-
-        history.push_back(newMsg);
-
-        // 4. Dosyaya yaz
-        std::ofstream outFile(filePath);
-        if (!outFile.is_open()) return false;
-        outFile << history.dump(4);
-        outFile.close();
-
-        return true;
+    // Klasör yoksa oluştur
+    if (!fs::exists("chat_data")) {
+        fs::create_directory("chat_data");
     }
-    catch (...) {
-        return false;
-    }
+    return "chat_data/chat_" + first + "_" + second + ".json";
 }
 
-// ==========================================================
-// GEÇMİŞ OKUMA FONKSİYONLARI (HAM JSON DÖNDÜRÜR)
-// ==========================================================
-std::string FileManager::getPrivateChatHistory(const std::string& user1, const std::string& user2) {
-    std::string first = (user1 < user2) ? user1 : user2;
-    std::string second = (user1 < user2) ? user2 : user1;
+// JSON dosyasına yeni mesajı ekler
+bool FileManager::saveChatMessage(const std::string& userA, const std::string& userB, const crow::json::wvalue& messageObj) {
+    std::string filePath = getChatFilePath(userA, userB);
+    std::vector<crow::json::rvalue> existingMessages;
 
-    std::string h1 = Security::hashString(first);
-    std::string h2 = Security::hashString(second);
-    std::string filePath = "uploads/sohbet/Chat_" + h1 + "_" + h2 + "/history.json";
-
-    if (!fs::exists(filePath)) return "[]";
-
-    try {
+    // Dosya varsa oku
+    if (fs::exists(filePath)) {
         std::ifstream inFile(filePath);
-        if (!inFile.is_open()) return "[]";
-        std::stringstream buffer;
-        buffer << inFile.rdbuf();
-        return buffer.str();
-    }
-    catch (...) {
-        return "[]";
-    }
-}
-
-std::string FileManager::getGroupChatHistory(const std::string& groupId, const std::string& channelId) {
-    std::string channelHash = Security::hashString(channelId);
-    std::string filePath = "uploads/grups/" + groupId + "/" + channelHash + ".json";
-
-    if (!fs::exists(filePath)) return "[]";
-
-    try {
-        std::ifstream inFile(filePath);
-        if (!inFile.is_open()) return "[]";
-        std::stringstream buffer;
-        buffer << inFile.rdbuf();
-        return buffer.str();
-    }
-    catch (...) {
-        return "[]";
-    }
-}
-
-// ==========================================================
-// MESAJ SİLME / GÖRÜNÜRLÜK GÜNCELLEME
-// ==========================================================
-bool FileManager::toggleMessageVisibility(const std::string& targetId, const std::string& msgId, bool isGroup, const std::string& groupId) {
-    try {
-        std::string filePath;
-
-        // Klasör yolunu bul
-        if (isGroup) {
-            std::string channelHash = Security::hashString(targetId);
-            filePath = "uploads/grups/" + groupId + "/" + channelHash + ".json";
-        }
-        else {
-            // Şimdilik targetId içinde user1_user2 gönderildiğini varsayıyoruz, 
-            // Veya api katmanından doğru formatlanmış path gelebilir.
-            return false; // Özel mesaj silme mantığını arayüzden gelen veriye göre uyarlayabilirsiniz.
-        }
-
-        if (!fs::exists(filePath)) return false;
-
-        nlohmann::json history;
-        {
-            std::ifstream inFile(filePath);
-            if (!inFile.is_open()) return false;
-            inFile >> history;
+        if (inFile.is_open()) {
+            std::stringstream buffer;
+            buffer << inFile.rdbuf();
+            auto parsed = crow::json::load(buffer.str());
+            if (parsed && parsed.t() == crow::json::type::List) {
+                for (const auto& item : parsed) {
+                    existingMessages.push_back(item);
+                }
+            }
             inFile.close();
         }
+    }
 
-        bool found = false;
-        for (auto& msg : history) {
-            if (msg.contains("MesajID") && msg["MesajID"].get<std::string>() == msgId) {
-                if (isGroup) {
-                    msg["MesajSilinmeDurumu"] = true; // Grup mesajları için boolean
-                }
-                else {
-                    msg["MesajSilinmeDurumu"] = "Global"; // DM'ler için string durumu
-                }
-                found = true;
-                break;
+    // Yeni mesajı listeye ekle (Bunu yaparken crow::json::wvalue kullanacağız)
+    std::vector<crow::json::wvalue> newArray;
+    for (const auto& oldMsg : existingMessages) {
+        newArray.push_back(oldMsg);
+    }
+
+    // messageObj (yeni atılan mesaj) listeye girer
+    newArray.push_back(messageObj);
+
+    // Dosyaya geri yaz
+    std::ofstream outFile(filePath, std::ios::trunc);
+    if (outFile.is_open()) {
+        outFile << crow::json::wvalue(newArray).dump();
+        outFile.close();
+        return true;
+    }
+    return false;
+}
+
+// Tüm geçmişi okur ve arayüze (Frontend) göndermeye hazır hale getirir
+crow::json::wvalue FileManager::getChatHistory(const std::string& userA, const std::string& userB) {
+    std::string filePath = getChatFilePath(userA, userB);
+
+    if (fs::exists(filePath)) {
+        std::ifstream inFile(filePath);
+        if (inFile.is_open()) {
+            std::stringstream buffer;
+            buffer << inFile.rdbuf();
+            auto parsed = crow::json::load(buffer.str());
+            inFile.close();
+            if (parsed) {
+                return crow::json::wvalue(parsed);
             }
         }
-
-        if (found) {
-            std::ofstream outFile(filePath);
-            outFile << history.dump(4);
-            return true;
-        }
-        return false;
     }
-    catch (...) {
-        return false;
-    }
+    // Dosya yoksa veya boşsa boş bir liste döndür
+    return crow::json::wvalue(std::vector<crow::json::wvalue>());
 }
