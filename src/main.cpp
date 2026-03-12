@@ -77,25 +77,27 @@ int main() {
         RoleRoutes::setup(app, db);
         ReportRoutes::setup(app, db);
 
-        // FRONTEND İÇİN: Yüklenen dosyaları dışarıya aç (Statik Servis)
+        // FRONTEND İÇİN: Yüklenen dosyaları dışarıya aç (Güvenlikli Statik Servis)
         CROW_ROUTE(app, "/uploads/<path>")
-            ([](const crow::request& req, crow::response& res, std::string path) {
-            std::string fullPath = "uploads/" + path;
-            std::ifstream file(fullPath, std::ios::binary);
-            if (!file.is_open()) {
-                res.code = 404;
+            ([](const crow::request& req, crow::response& res, std::string filepath) {
+
+            // 1. GÜVENLİK: .log dosyalarına (sohbet geçmişlerine) web üzerinden erişimi KESİNLİKLE yasakla
+            if (filepath.find(".log") != std::string::npos) {
+                res.code = 403; // 403 Forbidden (Yasak)
+                res.body = "Bu dosyaya erisim yetkiniz yok.";
                 res.end();
                 return;
             }
-            std::ostringstream contents;
-            contents << file.rdbuf();
-            res.body = contents.str();
 
-            // Tarayıcının dosyayı doğru anlaması için basit mime-type ayarları
-            if (path.find(".png") != std::string::npos) res.add_header("Content-Type", "image/png");
-            else if (path.find(".jpg") != std::string::npos || path.find(".jpeg") != std::string::npos) res.add_header("Content-Type", "image/jpeg");
-            else res.add_header("Content-Type", "application/octet-stream");
+            // 2. GÜVENLİK: Dizin atlatma (Directory Traversal) saldırılarını engelle
+            if (filepath.find("..") != std::string::npos) {
+                res.code = 403;
+                res.end();
+                return;
+            }
 
+            // Güvenlik kontrollerini geçerse dosyayı göster
+            res.set_static_file_info("uploads/" + filepath);
             res.end();
                 });
 

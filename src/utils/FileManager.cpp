@@ -101,7 +101,7 @@ bool FileManager::savePrivateMessageJSON(const std::string& sId, const std::stri
     try {
         std::lock_guard<std::mutex> lock(fileMtx); // Daha önce tanımladığınız file mutex
         std::string folderPath = generateChatFolderPath(sId, tId);
-        std::string filePath = folderPath + "/history.json";
+        std::string filePath = folderPath + "/history.log";
 
         nlohmann::json history = nlohmann::json::array();
         if (fs::exists(filePath)) {
@@ -137,7 +137,7 @@ bool FileManager::saveGroupMessageJSON(const std::string& groupId, const std::st
     try {
         std::lock_guard<std::mutex> lock(fileMtx);
         std::string folderPath = generateGroupFolderPath(groupId);
-        std::string filePath = folderPath + "/history.json"; // Veya hash(ChatRoom_ID).json
+        std::string filePath = folderPath + "/history.log"; // Veya hash(ChatRoom_ID).json
 
         nlohmann::json history = nlohmann::json::array();
         if (fs::exists(filePath)) {
@@ -170,7 +170,7 @@ std::string FileManager::getPrivateChatHistory(const std::string& u1, const std:
     try {
         std::lock_guard<std::mutex> lock(fileMtx); // Çakışmayı önle
         std::string folderPath = generateChatFolderPath(u1, u2);
-        std::string filePath = folderPath + "/history.json";
+        std::string filePath = folderPath + "/history.log";
 
         if (!fs::exists(filePath)) return "[]"; // Daha önce mesajlaşılmamışsa boş liste dön
 
@@ -195,7 +195,7 @@ std::string FileManager::getGroupChatHistory(const std::string& groupId) {
     try {
         std::lock_guard<std::mutex> lock(fileMtx);
         std::string folderPath = generateGroupFolderPath(groupId);
-        std::string filePath = folderPath + "/history.json";
+        std::string filePath = folderPath + "/history.log";
 
         if (!fs::exists(filePath)) return "[]";
 
@@ -218,7 +218,7 @@ bool FileManager::markMessagesAsRead(const std::string& senderId, const std::str
     try {
         std::lock_guard<std::mutex> lock(fileMtx);
         std::string folderPath = generateChatFolderPath(senderId, targetId);
-        std::string filePath = folderPath + "/history.json";
+        std::string filePath = folderPath + "/history.log";
 
         if (!fs::exists(filePath)) return false;
 
