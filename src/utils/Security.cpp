@@ -40,8 +40,6 @@ bool Security::verifyPassword(const std::string& password, const std::string& ha
 std::string Security::hashString(const std::string& input) {
     std::hash<std::string> hasher;
     auto hashed = hasher(input);
-
-    // Klasör isimlerinde güvenli olması için Hex (16 tabanlı) formata çeviriyoruz
     std::stringstream ss;
     ss << std::hex << std::setw(16) << std::setfill('0') << hashed;
     return ss.str();

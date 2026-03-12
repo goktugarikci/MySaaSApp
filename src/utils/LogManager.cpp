@@ -1,42 +1,49 @@
+#include "LogManager.h"
+#include "FileManager.h"
 #include <mutex>
 #include <thread>
 #include <map>
 #include <fstream>
-#include "FileManager.h"
+#include <chrono>
+#include <filesystem>
 
-class LogManager {
-private:
-    static std::map<std::string, std::vector<std::string>> logPool; // ContextID -> Mesajlar
-    static std::mutex logMtx;
+// Statik değişkenlerin tanımlanması
+std::map<std::string, std::vector<std::string>> logPool;
+std::mutex logMtx;
+namespace fs = std::filesystem;
 
-public:
-    static void startBackupWorker() {
-        std::thread([]() {
-            while (true) {
-                std::this_thread::sleep_for(std::chrono::seconds(10));
-                processBackup();
-            }
-            }).detach();
+void LogManager::startBackupWorker() {
+    // Yedekleme klasörünü garantiye al
+    if (!fs::exists("chat_data/backups")) {
+        fs::create_directories("chat_data/backups");
     }
 
-    static void processBackup() {
-        std::lock_guard<std::mutex> lock(logMtx);
-        if (logPool.empty()) return;
+    std::thread([]() {
+        while (true) {
+            std::this_thread::sleep_for(std::chrono::seconds(10));
+            processBackup();
+        }
+        }).detach();
+}
 
-        for (auto& [contextId, messages] : logPool) {
-            // FileManager üzerinden toplu yazma işlemi yap
-            // Örneğin: chat_data/backup_contextId.txt
-            std::ofstream outFile("chat_data/backups/" + contextId + ".txt", std::ios::app);
+void LogManager::processBackup() {
+    std::lock_guard<std::mutex> lock(logMtx);
+    if (logPool.empty()) return;
+
+    for (auto& [contextId, messages] : logPool) {
+        std::ofstream outFile("chat_data/backups/" + contextId + "_backup.txt", std::ios::app);
+        if (outFile.is_open()) {
             for (const auto& m : messages) {
                 outFile << "[" << std::time(nullptr) << "] " << m << "\n";
             }
-            messages.clear(); // Yazılanları temizle
+            outFile.close();
         }
+        messages.clear(); // Yazılanları temizle
     }
+}
 
-    static void addToQueue(const std::string& sId, const std::string& tId, const std::string& msg) {
-        std::lock_guard<std::mutex> lock(logMtx);
-        std::string contextId = (sId < tId) ? sId + "_" + tId : tId + "_" + sId;
-        logPool[contextId].push_back(msg);
-    }
-};
+void LogManager::addToQueue(const std::string& sId, const std::string& tId, const std::string& msg) {
+    std::lock_guard<std::mutex> lock(logMtx);
+    std::string contextId = (sId < tId) ? sId + "_" + tId : tId + "_" + sId;
+    logPool[contextId].push_back("Gonderen: " + sId + " | Sifreli Icerik: " + msg);
+}
