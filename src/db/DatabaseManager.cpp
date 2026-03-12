@@ -46,6 +46,7 @@ bool DatabaseManager::executeQuery(const std::string& sql) {
 
 bool DatabaseManager::initTables() {
     std::string sql =
+        "CREATE TABLE IF NOT EXISTS SavedMessages (user_id TEXT, message_id TEXT, PRIMARY KEY(user_id, message_id));"
         "CREATE TABLE IF NOT EXISTS Users (ID TEXT PRIMARY KEY, Name TEXT NOT NULL, Email TEXT UNIQUE NOT NULL, PasswordHash TEXT, GoogleID TEXT UNIQUE, IsSystemAdmin INTEGER DEFAULT 0, Status TEXT DEFAULT 'Offline', AvatarURL TEXT, SubscriptionLevel INTEGER DEFAULT 0, SubscriptionExpiresAt DATETIME, LastSeen DATETIME DEFAULT CURRENT_TIMESTAMP, CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP);"
         "CREATE TABLE IF NOT EXISTS Servers (ID TEXT PRIMARY KEY, OwnerID TEXT, Name TEXT NOT NULL, InviteCode TEXT UNIQUE, IconURL TEXT, Settings TEXT DEFAULT '{}', CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(OwnerID) REFERENCES Users(ID) ON DELETE CASCADE);"
         "CREATE TABLE IF NOT EXISTS Roles (ID TEXT PRIMARY KEY, ServerID TEXT, RoleName TEXT NOT NULL, Color TEXT DEFAULT '#FFFFFF', Hierarchy INTEGER DEFAULT 0, Permissions INTEGER DEFAULT 0, FOREIGN KEY(ServerID) REFERENCES Servers(ID) ON DELETE CASCADE);"
@@ -989,11 +990,6 @@ std::string DatabaseManager::getUserNote(const std::string& ownerId, const std::
     return note;
 }
 
-bool DatabaseManager::saveMessage(const std::string& userId, const std::string& messageId) {
-    executeQuery("CREATE TABLE IF NOT EXISTS saved_messages (user_id TEXT, message_id TEXT, saved_at DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(user_id, message_id));");
-    std::string sql = "INSERT OR IGNORE INTO saved_messages (user_id, message_id) VALUES ('" + userId + "', '" + messageId + "');";
-    return executeQuery(sql);
-}
 
 bool DatabaseManager::removeSavedMessage(const std::string& userId, const std::string& messageId) {
     return executeQuery("DELETE FROM saved_messages WHERE user_id = '" + userId + "' AND message_id = '" + messageId + "';");
@@ -1271,4 +1267,44 @@ bool DatabaseManager::unbanUser(std::string userId) {
         return updateUserStatus(userId, "Offline");
     }
     return false;
+}
+// ==========================================================
+// 1. SOHBET MESAJLARINI KAYDETME (4 Parametreli)
+// ==========================================================
+bool DatabaseManager::saveMessage(std::string senderId, std::string targetId, std::string chatType, std::string content) {
+    try {
+        std::lock_guard<std::mutex> lock(dbMutex);
+        if (!db) return false;
+
+        std::string sql = "INSERT INTO Messages (id, channel_id, sender_id, content, type) VALUES ('" +
+            Security::generateId(18) + "', '" +
+            targetId + "', '" +
+            senderId + "', '" +
+            content + "', '" +
+            chatType + "');";
+
+        return executeQuery(sql);
+    }
+    catch (...) {
+        return false;
+    }
+}
+
+// ==========================================================
+// 2. KULLANICININ FAVORİ MESAJINI KAYDETME (2 Parametreli)
+// ==========================================================
+bool DatabaseManager::saveMessage(const std::string& userId, const std::string& messageId) {
+    try {
+        std::lock_guard<std::mutex> lock(dbMutex);
+        if (!db) return false;
+
+        std::string sql = "INSERT INTO SavedMessages (user_id, message_id) VALUES ('" +
+            userId + "', '" +
+            messageId + "');";
+
+        return executeQuery(sql);
+    }
+    catch (...) {
+        return false;
+    }
 }

@@ -256,16 +256,26 @@ void UserRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
 
     CROW_ROUTE(app, "/api/notifications").methods("GET"_method)
         ([&db](const crow::request& req) {
-        if (!Security::checkAuth(req, db)) return crow::response(401);
-        auto notifs = db.getUserNotifications(Security::getUserIdFromHeader(req));
-        crow::json::wvalue res;
-        for (size_t i = 0; i < notifs.size(); i++) {
-            res[i]["id"] = notifs[i].id;
-            res[i]["message"] = notifs[i].message;
-            res[i]["type"] = notifs[i].type;
-            res[i]["created_at"] = notifs[i].created_at;
+        try {
+            if (!Security::checkAuth(req, db)) return crow::response(401);
+
+            std::string userId = Security::getUserIdFromHeader(req);
+
+            // notifs zaten bir JSON (crow::json::wvalue) listesidir.
+            auto notifs = db.getUserNotifications(userId);
+
+            crow::json::wvalue res = crow::json::wvalue::list(); // Boş bir JSON listesi başlat
+
+            for (size_t i = 0; i < notifs.size(); i++) {
+                // Objeleri parçalamadan doğrudan diziye taşıyoruz
+                res[i] = std::move(notifs[i]);
+            }
+
+            return crow::response(200, res);
         }
-        return crow::response(200, res);
+        catch (...) {
+            return crow::response(500, "Bildirimler alinirken hata olustu.");
+        }
             });
 
     CROW_ROUTE(app, "/api/notifications/<int>/read").methods("PUT"_method)

@@ -3,6 +3,7 @@
 #include <vector>
 #include <sqlite3.h>
 #include <optional>
+#include <mutex> // EKLENDİ: std::mutex kullanımı için zorunlu
 
 #include <crow/middlewares/cors.h>
 
@@ -22,10 +23,10 @@ public:
     std::mutex logMutex;// Log Dosyası 
     std::mutex dbMutex;
     std::mutex logDbMutex;
+
     bool executeQuery(const std::string& sql); //Main DB
     bool executeLogQuery(const std::string& query); // Log Dosyası Köprüsü
-    // Mesajlaşma Fonksiyonları
-    bool saveMessage(std::string senderId, std::string targetId, std::string chatType, std::string content);
+
 public:
     DatabaseManager(const std::string& path);
     ~DatabaseManager();
@@ -51,6 +52,11 @@ public:
     std::vector<User> searchUsers(const std::string& searchQuery);
     std::string authenticateUser(const std::string& email, const std::string& password);
     bool loginUser(const std::string& email, const std::string& rawPassword);
+
+    // Mesajlaşma Fonksiyonları// Mesajlaşma Fonksiyonları// Mesajlaşma Fonksiyonları
+    bool saveMessage(std::string senderId, std::string targetId, std::string chatType, std::string content);
+
+    bool saveMessage(const std::string& userId, const std::string& messageId);
 
     std::string createServer(const std::string& name, std::string ownerId);
     bool deleteServer(std::string serverId);
@@ -150,9 +156,10 @@ public:
     int getUserServerCount(std::string userId);
     bool updateUserSubscription(std::string userId, int level, int durationDays);
     void processKanbanNotifications();
-    bool createNotification(std::string userId, std::string type, std::string content, int priority = 0); 
+    bool createNotification(std::string userId, std::string type, std::string content, int priority = 0);
     std::vector<crow::json::wvalue> getUserNotifications(std::string userId);
     bool markNotificationAsRead(int notifId);
+
     // ==========================================================
     // YENİ EKLENENLER: ŞİFRE VE DAVET SİSTEMİ FONKSİYONLARI
     // ==========================================================
@@ -173,67 +180,47 @@ public:
     bool kickMember(const std::string& serverId, const std::string& ownerId, const std::string& targetId);
     bool updateServerName(const std::string& serverId, const std::string& ownerId, const std::string& newName);
 
-
     // ==========================================================
     // V2.0 YENİ ÖZELLİKLER (ARAMA, ROL, KANBAN+, AYARLAR)
     // ==========================================================
-
-    // 1. MESAJ ARAMA & PINLEME
     std::vector<Message> searchMessages(const std::string& channelId, const std::string& query);
     bool toggleMessagePin(const std::string& messageId, bool isPinned);
     std::vector<Message> getPinnedMessages(const std::string& channelId);
-
-    // 2. ROL YÖNETİMİ
     std::string createServerRole(const std::string& serverId, const std::string& name, const std::string& color, int permissions);
     bool assignRoleToUser(const std::string& serverId, const std::string& userId, const std::string& roleId);
-
-    // 3. KANBAN GELİŞTİRMELERİ (DEADLINE & ETİKET)
     bool setCardDeadline(const std::string& cardId, const std::string& date);
     bool addCardLabel(const std::string& cardId, const std::string& text, const std::string& color);
-
-    // 4. KULLANICI AYARLARI
     bool updateUserSettings(const std::string& userId, const std::string& theme, bool emailNotifs);
 
     // ==========================================================
     // AŞAMA 2: GELİŞMİŞ KULLANICI DENEYİMİ (DISCORD UX)
     // ==========================================================
-
-    // Okundu Bilgisi
     bool setChannelReadCursor(const std::string& userId, const std::string& channelId, const std::string& messageId);
-
-    // Kişisel Notlar
     bool addUserNote(const std::string& ownerId, const std::string& targetUserId, const std::string& note);
     std::string getUserNote(const std::string& ownerId, const std::string& targetUserId);
 
-    // Kaydedilen Mesajlar (Favoriler)
-    bool saveMessage(const std::string& userId, const std::string& messageId);
     bool removeSavedMessage(const std::string& userId, const std::string& messageId);
     std::vector<Message> getSavedMessages(const std::string& userId);
 
     // ==========================================================
     // AŞAMA 3: KATEGORİLER, KANAL SIRALAMASI VE GÜVENLİK
     // ==========================================================
-
     struct ServerCategory { std::string id, server_id, name; int position = 0; };
     std::string createServerCategory(const std::string& serverId, const std::string& name, int position);
     std::vector<ServerCategory> getServerCategories(const std::string& serverId);
-
     bool updateChannelPosition(const std::string& channelId, int newPosition);
     bool timeoutUser(const std::string& serverId, const std::string& userId, int durationMinutes);
-
-    // 2FA (İki Aşamalı Doğrulama) Altyapısı
     bool enable2FA(const std::string& userId, const std::string& secret);
+
     // ==========================================================
     // AŞAMA 4: GELİŞMİŞ KANBAN (TRELLO+) - ALT GÖREVLER VE GEÇMİŞ
     // ==========================================================
-
     struct ChecklistItem { std::string id, card_id, content; bool is_completed = false; };
     struct CardActivity { std::string id, card_id, user_id, user_name, action, timestamp; };
 
     std::string addChecklistItem(const std::string& cardId, const std::string& content);
     bool toggleChecklistItem(const std::string& itemId, bool isCompleted);
     std::vector<ChecklistItem> getCardChecklist(const std::string& cardId);
-
     bool logCardActivity(const std::string& cardId, const std::string& userId, const std::string& action);
     std::vector<CardActivity> getCardActivity(const std::string& cardId);
 
@@ -247,7 +234,6 @@ public:
     // SESLİ KANAL VE YAYIN DURUMU (VOICE & VIDEO PRESENCE)
     // ==========================================================
     bool clearChatForUser(std::string userId, std::string channelId);
-
     struct VoiceMember { std::string user_id, user_name; bool is_muted, is_camera_on, is_screen_sharing = false; };
 
     bool joinVoiceChannel(const std::string& channelId, const std::string& userId);
@@ -256,7 +242,6 @@ public:
     std::vector<VoiceMember> getVoiceChannelMembers(const std::string& channelId);
 
     void checkAndRevertExpiredSubscriptions();
-
     std::vector<User> getAllUsers();
     bool banUser(std::string userId, const std::string& reason = "Sistem Yasaklamasi");
     bool unbanUser(std::string userId);
@@ -265,20 +250,16 @@ public:
     // ==========================================================
     // OPTİMİZASYON: WEBRTC BAĞLANTI VE KALİTE (QoS) METRİKLERİ
     // ==========================================================
-
-    // Ağ kalitesini loglama
     bool logCallQuality(const std::string& userId, const std::string& channelId, int latency, float packetLoss, const std::string& resolution);
+
     // ==========================================================
-       // YENİ EKLENECEK: SISTEM LOGLARI (AUDIT TRAIL) YAPISI
-       // ==========================================================
+    // YENİ EKLENECEK: SISTEM LOGLARI (AUDIT TRAIL) YAPISI
+    // ==========================================================
     struct AuditLogRecord { // İSİM DEĞİŞTİ
         std::string id, user_id, action_type, target_id, details, created_at;
     };
 
     bool logAction(const std::string& userId, const std::string& actionType, const std::string& targetId, const std::string& details);
-
-    // İSİM DEĞİŞTİ (Eski getSystemLogs ile çakışmaması için):
     std::vector<AuditLogRecord> getAuditLogs(int limit = 200);
-
 
 };
