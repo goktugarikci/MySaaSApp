@@ -94,6 +94,7 @@ void MessageRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db
         auto x = crow::json::load(req.body);
         if (!x || !x.has("content")) return crow::response(400);
 <<<<<<< HEAD
+<<<<<<< HEAD
 
         std::string attachmentUrl = x.has("attachment_url") ? std::string(x["attachment_url"].s()) : "";
         std::string userId = Security::getUserIdFromHeader(req);
@@ -163,6 +164,31 @@ void MessageRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db
 =======
 
         std::string attachmentUrl = x.has("attachment_url") ? std::string(x["attachment_url"].s()) : "";
+=======
+
+        std::string attachmentUrl = x.has("attachment_url") ? std::string(x["attachment_url"].s()) : "";
+        std::string userId = Security::getUserIdFromHeader(req);
+
+        if (db.sendMessage(channelId, userId, std::string(x["content"].s()), attachmentUrl)) {
+
+            // LOG: Yeni Mesaj Gönderimi
+            db.logAction(userId, "SEND_MESSAGE", channelId, "Kullanici bir kanala veya DM'e yeni mesaj gonderdi.");
+
+            return crow::response(201, "Mesaj gonderildi.");
+        }
+        return crow::response(500);
+            });
+
+    // ==========================================================
+    // 3. MESAJI DÜZENLE VE LOGLA (SUNUCU VEYA DM FARK ETMEZ)
+    // ==========================================================
+    CROW_ROUTE(app, "/api/messages/<string>").methods("PUT"_method)
+        ([&db](const crow::request& req, std::string messageId) {
+        if (!Security::checkAuth(req, db)) return crow::response(401);
+        auto x = crow::json::load(req.body);
+        if (!x || !x.has("content")) return crow::response(400);
+
+>>>>>>> parent of 25d01e2 (v)
         std::string userId = Security::getUserIdFromHeader(req);
 
         if (db.sendMessage(channelId, userId, std::string(x["content"].s()), attachmentUrl)) {
