@@ -5,6 +5,11 @@
 #include <thread>
 #include <chrono>
 #include <iostream>
+#include <vector> // Arka plan görevlerinde vektör kullanımı için eklendi
+#include <optional> // std::optional kullanımı için eklendi
+#include <mutex> // std::mutex kullanımı için eklendi
+#include <sqlite3.h> // SQLite işlemleri için eklendi
+#include <string>
 #include <exception> // Hata yakalama için eklendi
 
 // --- MODÜL BAŞLIKLARI (ROUTES) ---

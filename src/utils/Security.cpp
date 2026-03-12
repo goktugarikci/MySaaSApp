@@ -4,7 +4,8 @@
 #include <vector>
 #include <chrono>
 #include <nlohmann/json.hpp>
-
+#include <sstream>
+#include <iomanip>
 // PicoJSON kütüphanesini vcpkg.json üzerinden indirdik.
 // Bu yüzden derleyicinin PicoJSON'u engellemesini devre dışı bırakıyoruz:
 #undef JWT_DISABLE_PICOJSON
@@ -102,4 +103,49 @@ std::string Security::generateLiveKitToken(const std::string& roomName, const st
         .sign(jwt::algorithm::hs256{ API_SECRET });
 
     return token;
+}
+// ==========================================================
+// MESAJ ŞİFRELEME (XOR + Hex Encoding)
+// ==========================================================
+std::string Security::encryptMessage(const std::string& plainText) {
+    if (plainText.empty()) return "";
+
+    std::string key = "MySaaSApp_Super_Secret_Key_2026!"; // Kendi gizli anahtarınız
+    std::string cipherText = "";
+
+    // Basit ve hızlı XOR şifrelemesi
+    for (size_t i = 0; i < plainText.size(); ++i) {
+        cipherText += plainText[i] ^ key[i % key.size()];
+    }
+
+    // JSON dosyasında bozuk karakter çıkmaması için Hex (16'lık taban) string'e çeviriyoruz
+    std::stringstream ss;
+    for (unsigned char c : cipherText) {
+        ss << std::hex << std::setw(2) << std::setfill('0') << (int)c;
+    }
+    return ss.str();
+}
+
+// ==========================================================
+// MESAJ ŞİFRESİ ÇÖZME (Hex Decoding + XOR)
+// ==========================================================
+std::string Security::decryptMessage(const std::string& hexText) {
+    if (hexText.empty() || hexText.length() % 2 != 0) return hexText; // Geçersiz veya şifrelenmemiş ise aynen dön
+
+    std::string cipherText = "";
+    // Hex string'i normal karakterlere geri çevir
+    for (size_t i = 0; i < hexText.length(); i += 2) {
+        std::string byteString = hexText.substr(i, 2);
+        char byte = (char)strtol(byteString.c_str(), NULL, 16);
+        cipherText += byte;
+    }
+
+    std::string key = "MySaaSApp_Super_Secret_Key_2026!"; // Şifrelerken kullanılan anahtarın aynısı
+    std::string plainText = "";
+
+    // XOR işlemini tersine çevirerek orijinal metni elde et
+    for (size_t i = 0; i < cipherText.size(); ++i) {
+        plainText += cipherText[i] ^ key[i % key.size()];
+    }
+    return plainText;
 }

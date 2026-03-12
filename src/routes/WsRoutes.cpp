@@ -1,9 +1,11 @@
 #include "WsRoutes.h"
 #include "../utils/Security.h"
+#include "../utils/FileManager.h" // YENİ EKLENDİ: JSON Kayıt motoru için
 #include <unordered_map>
 #include <unordered_set>
 #include <mutex>
 #include <iostream>
+#include <chrono>
 
 // --- VİDEO VE SESLİ ODA (ROOM) İÇİN DEĞİŞKENLER ---
 std::mutex video_call_mtx;
@@ -11,14 +13,15 @@ std::unordered_map<std::string, crow::websocket::connection*> active_video_users
 std::unordered_map<crow::websocket::connection*, std::string> conn_to_video_user; // connection -> userId
 std::unordered_map<std::string, std::unordered_set<std::string>> video_rooms;     // channelId -> [userId1, userId2...]
 
-// --- YAZILI SOHBET (ROOM) İÇİN DEĞİŞKENLER ---
+// --- YAZILI SOHBET (ROOM) İÇİN DEĞİŞKENLER (YENİ MİMARİ) ---
 std::mutex chat_mtx;
-std::unordered_map<crow::websocket::connection*, std::string> chat_user_channels; // connection -> channelId
+// ARTIK KANALLAR YOK. Her kullanıcının kendi sabit bir odası (borusu) var.
+std::unordered_map<std::string, crow::websocket::connection*> online_users; // userId -> connection
 
 void WsRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
 
     // ==========================================================
-    // 1. GÖRÜNTÜLÜ VE SESLİ ARAMA SİNYALİZASYONU (ODA DESTEKLİ)
+    // 1. GÖRÜNTÜLÜ VE SESLİ ARAMA SİNYALİZASYONU (DEĞİŞTİRİLMEDİ)
     // ==========================================================
     CROW_WEBSOCKET_ROUTE(app, "/ws/video-call")
         .onopen([&](crow::websocket::connection& conn) {
@@ -32,7 +35,6 @@ void WsRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
             std::string type = msg["type"].s();
             std::lock_guard<std::mutex> lock(video_call_mtx);
 
-            // Odaya Katılma (Discord Sesli Kanala Giriş)
             if (type == "join-room" && msg.has("user_id") && msg.has("channel_id")) {
                 std::string userId = msg["user_id"].s();
                 std::string channelId = msg["channel_id"].s();
@@ -43,7 +45,6 @@ void WsRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
 
                 CROW_LOG_INFO << userId << " kullanicisi " << channelId << " sesli odasina katildi.";
 
-                // Odadaki diğer kişilere "Yeni biri geldi, ona WebRTC teklifi atın" uyarısı gönder
                 crow::json::wvalue alertMsg;
                 alertMsg["type"] = "peer-joined";
                 alertMsg["user_id"] = userId;
@@ -54,13 +55,11 @@ void WsRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
                     }
                 }
             }
-            // WebRTC Sinyallerini (Kamera IP/Port bilgileri) sadece hedefe yolla
             else if ((type == "offer" || type == "answer" || type == "ice_candidate") && msg.has("target_id")) {
                 std::string targetId = msg["target_id"].s();
                 auto it = active_video_users.find(targetId);
 
                 if (it != active_video_users.end() && it->second != nullptr) {
-                    // Mesajı kimin gönderdiğini ekleyerek hedefe ilet
                     crow::json::wvalue outMsg = msg;
                     if (conn_to_video_user.count(&conn)) {
                         outMsg["from_id"] = conn_to_video_user[&conn];
@@ -78,7 +77,6 @@ void WsRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
         if (conn_to_video_user.count(&conn)) {
             std::string userId = conn_to_video_user[&conn];
 
-            // Kullanıcıyı bulunduğu odadan çıkar ve odadakilere haber ver
             for (auto& room : video_rooms) {
                 if (room.second.count(userId)) {
                     room.second.erase(userId);
@@ -102,45 +100,94 @@ void WsRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
             });
 
     // ==========================================================
-    // 2. GENEL MESAJLAŞMA (İZOLE EDİLMİŞ KANALLAR)
+    // 2. GENEL MESAJLAŞMA (YENİ MİMARİ: JSON LOG VE SABİT ODA)
     // ==========================================================
     CROW_WEBSOCKET_ROUTE(app, "/ws/chat")
         .onopen([&](crow::websocket::connection& conn) {
         CROW_LOG_INFO << "Yeni WebSocket baglantisi (Chat) baslatildi.";
             })
-        .onmessage([&](crow::websocket::connection& conn, const std::string& data, bool is_binary) {
+        .onmessage([&db](crow::websocket::connection& conn, const std::string& data, bool is_binary) {
         try {
             auto msg = crow::json::load(data);
-            if (!msg) return;
+            if (!msg || !msg.has("type")) return;
 
             std::lock_guard<std::mutex> lock(chat_mtx);
+            std::string type = std::string(msg["type"].s());
 
-            // Kullanıcı "Ben şu kanala bağlandım" derse kaydet
-            if (msg.has("type") && msg["type"].s() == "subscribe" && msg.has("channel_id")) {
-                chat_user_channels[&conn] = msg["channel_id"].s();
+            // 2.1 - KULLANICI GİRİŞİ (Odasını sisteme kaydeder)
+            if (type == "auth" && msg.has("user_id")) {
+                std::string userId = std::string(msg["user_id"].s());
+                online_users[userId] = &conn;
+                CROW_LOG_INFO << "Kullanici sohbete baglandi: " << userId;
                 return;
             }
 
-            // Gelen bir mesajı SADECE aynı kanaldaki (channel_id) kişilere gönder
-            if (chat_user_channels.count(&conn)) {
-                std::string myChannel = chat_user_channels[&conn];
+            // 2.2 - MESAJ GÖNDERME
+            if (type == "message" && msg.has("sender_id") && msg.has("text")) {
+                std::string sId = std::string(msg["sender_id"].s());
+                std::string txt = std::string(msg["text"].s());
+                std::string contentType = msg.has("content_type") ? std::string(msg["content_type"].s()) : "Text";
+                bool isGroup = msg.has("is_group") ? msg["is_group"].b() : false;
 
-                for (auto const& [peer_conn, channel] : chat_user_channels) {
-                    if (peer_conn != &conn && channel == myChannel) {
-                        peer_conn->send_text(data);
+                // Güvenlik: Mesajı Disk İçin Şifrele
+                std::string encryptedMsg = Security::encryptMessage(txt);
+
+                // Frontend'e gidecek Canlı Paket
+                crow::json::wvalue outMsg;
+                outMsg["type"] = "new_message";
+                outMsg["gönderenID"] = sId;
+                outMsg["Mesaj"] = txt; // Ekranda görünmesi için şifresiz iletilir
+                outMsg["MesajİçerikDurumu"] = contentType;
+                outMsg["is_group"] = isGroup;
+
+                // A) ÖZEL MESAJ (DM)
+                if (!isGroup && msg.has("target_id")) {
+                    std::string tId = std::string(msg["target_id"].s());
+                    outMsg["alıcıID"] = tId;
+
+                    // Dosyaya Şifreli Yaz
+                    FileManager::savePrivateMessageJSON(sId, tId, encryptedMsg, contentType);
+
+                    // Alıcı online ise DOĞRUDAN onun sabit odasına fırlat
+                    if (online_users.count(tId) && online_users[tId] != nullptr) {
+                        try { online_users[tId]->send_text(outMsg.dump()); }
+                        catch (...) {}
+                    }
+                }
+                // B) GRUP MESAJI
+                else if (isGroup && msg.has("group_id")) {
+                    std::string gId = std::string(msg["group_id"].s());
+                    outMsg["group_id"] = gId;
+
+                    // Üyeleri Çek ve JSON dosyasına şifreli kaydet
+                    auto members = db.getServerMembersDetails(gId);
+                    int totalMembers = members.size();
+                    FileManager::saveGroupMessageJSON(gId, sId, encryptedMsg, contentType, totalMembers);
+
+                    // Gruptaki ONLINE kişilere mesajı canlı dağıt
+                    for (const auto& member : members) {
+                        std::string memberId = member.id;
+                        if (memberId != sId && online_users.count(memberId) && online_users[memberId] != nullptr) {
+                            try { online_users[memberId]->send_text(outMsg.dump()); }
+                            catch (...) {}
+                        }
                     }
                 }
             }
         }
-        catch (...) {}
+        catch (...) { CROW_LOG_ERROR << "WS Chat Mesaj Hatasi"; }
             })
         .onclose([&](crow::websocket::connection& conn, const std::string& reason, uint16_t code) {
         std::lock_guard<std::mutex> lock(chat_mtx);
-        chat_user_channels.erase(&conn);
+        // Kullanıcı offline oldu, sistemden sil
+        for (auto it = online_users.begin(); it != online_users.end(); ) {
+            if (it->second == &conn) it = online_users.erase(it);
+            else ++it;
+        }
             });
 
     // ==========================================================
-    // 3. WEBRTC REST API'LERİ (Değiştirilmedi, Mükemmel Çalışıyor)
+    // 3. WEBRTC REST API'LERİ (DEĞİŞTİRİLMEDİ)
     // ==========================================================
     CROW_ROUTE(app, "/api/webrtc/ice-servers").methods("GET"_method)
         ([&db](const crow::request& req) {

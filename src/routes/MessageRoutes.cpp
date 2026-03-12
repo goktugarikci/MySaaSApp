@@ -1,5 +1,9 @@
 #include "MessageRoutes.h"
-#include "../utils/Security.h"
+#include "../utils/Security.h"    // <--- BU SATIR EKSİK OLDUĞU İÇİN HATA ALIYORSUNUZ
+#include "../utils/FileManager.h"
+#include <mutex>
+#include <vector>
+#include <string>
 
 void MessageRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
 
@@ -233,5 +237,64 @@ void MessageRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db
         // WsManager::broadcastTypingEvent(channelId, userId);
         return crow::response(200);
             });
+    // ==========================================================
+    // GEÇMİŞİ GETİR (YENİ JSON MİMARİSİ VE ŞİFRE ÇÖZÜCÜ)
+    // ==========================================================
+    CROW_ROUTE(app, "/api/chat/history/<string>").methods("GET"_method)
+        ([&db](const crow::request& req, std::string targetId) {
+        try {
+            if (!Security::checkAuth(req, db, false)) return crow::response(401);
+            std::string myId = Security::getUserIdFromHeader(req);
 
+            // Frontend ?is_group=true parametresi gönderirse grup olduğunu anlarız
+            bool isGroup = req.url_params.get("is_group") != nullptr ? std::string(req.url_params.get("is_group")) == "true" : false;
+
+            std::string rawJson = "[]";
+
+            // YENİ JSON MİMARİSİNDEN DOSYA OKUMA
+            if (isGroup) {
+                rawJson = FileManager::getGroupChatHistory(targetId); // targetId bu durumda groupId'dir
+            }
+            else {
+                rawJson = FileManager::getPrivateChatHistory(myId, targetId);
+            }
+
+            if (rawJson == "[]" || rawJson.empty()) {
+                return crow::response(200, "[]");
+            }
+
+            // Dosyadan gelen veriyi parse et ve ŞİFRELERİ ÇÖZ
+            auto parsed = nlohmann::json::parse(rawJson);
+            nlohmann::json finalHistory = nlohmann::json::array();
+
+            for (auto& item : parsed) {
+                // Silinmiş mesaj kontrolü (Frontend'e silindi olarak göster)
+                bool isDeleted = false;
+                if (item.contains("MesajSilinmeDurumu")) {
+                    if (item["MesajSilinmeDurumu"].is_boolean() && item["MesajSilinmeDurumu"].get<bool>() == true) isDeleted = true;
+                    if (item["MesajSilinmeDurumu"].is_string() && item["MesajSilinmeDurumu"].get<std::string>() != "null") isDeleted = true;
+                }
+
+                if (isDeleted) {
+                    item["Mesaj"] = "🚫 [Bu mesaj silindi]";
+                }
+                else if (item.contains("Mesaj")) {
+                    // Mesaj silinmemişse ŞİFREYİ ÇÖZ
+                    std::string encrypted = item["Mesaj"].get<std::string>();
+                    if (!encrypted.empty()) {
+                        item["Mesaj"] = Security::decryptMessage(encrypted);
+                    }
+                }
+
+                finalHistory.push_back(item);
+            }
+
+            return crow::response(200, finalHistory.dump());
+
+        }
+        catch (const std::exception& e) {
+            CROW_LOG_ERROR << "Gecmis okuma hatasi: " << e.what();
+            return crow::response(500, "[]");
+        }
+            });
 }

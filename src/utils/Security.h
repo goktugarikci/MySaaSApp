@@ -29,4 +29,6 @@ public:
     static std::string getUserIdFromHeader(const crow::request& req);
     // LiveKit Medya Sunucusu için Access Token Üretici
     static std::string generateLiveKitToken(const std::string& roomName, const std::string& participantName, const std::string& participantId);
+    static std::string encryptMessage(const std::string& plainText);
+    static std::string decryptMessage(const std::string& cipherText);
 };

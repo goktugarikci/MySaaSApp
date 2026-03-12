@@ -3,6 +3,8 @@
 #include <vector>
 #include <filesystem>
 
+#include <nlohmann/json.hpp>
+
 class FileManager {
 public:
     // Dosya türleri
@@ -22,6 +24,10 @@ public:
     static std::string generateGroupFolderPath(const std::string& groupId);
     static bool savePrivateMessageJSON(const std::string& sId, const std::string& tId, const std::string& encMsg, const std::string& contentType);
     static bool saveGroupMessageJSON(const std::string& groupId, const std::string& senderId, const std::string& encMsg, const std::string& contentType, int totalMembers);
+    // --- YENİ EKLENECEKLER ---
+    static bool markMessagesAsRead(const std::string& senderId, const std::string& targetId);
+    static std::string getPrivateChatHistory(const std::string& u1, const std::string& u2);
+    static std::string getGroupChatHistory(const std::string& groupId);
     // Dosyayı okur (Crow'un dosyayı sunması için)
     static std::string readFile(const std::string& filepath);
 

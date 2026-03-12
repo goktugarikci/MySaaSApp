@@ -163,3 +163,94 @@ bool FileManager::saveGroupMessageJSON(const std::string& groupId, const std::st
     }
     catch (...) { return false; }
 }
+// ==========================================================
+// DM GEÇMİŞİNİ OKUMA
+// ==========================================================
+std::string FileManager::getPrivateChatHistory(const std::string& u1, const std::string& u2) {
+    try {
+        std::lock_guard<std::mutex> lock(fileMtx); // Çakışmayı önle
+        std::string folderPath = generateChatFolderPath(u1, u2);
+        std::string filePath = folderPath + "/history.json";
+
+        if (!fs::exists(filePath)) return "[]"; // Daha önce mesajlaşılmamışsa boş liste dön
+
+        std::ifstream inFile(filePath);
+        if (!inFile.is_open()) return "[]";
+
+        // Dosyadaki tüm içeriği tek seferde string olarak oku
+        std::string content((std::istreambuf_iterator<char>(inFile)), std::istreambuf_iterator<char>());
+        inFile.close();
+
+        return content.empty() ? "[]" : content;
+    }
+    catch (...) {
+        return "[]";
+    }
+}
+
+// ==========================================================
+// GRUP GEÇMİŞİNİ OKUMA
+// ==========================================================
+std::string FileManager::getGroupChatHistory(const std::string& groupId) {
+    try {
+        std::lock_guard<std::mutex> lock(fileMtx);
+        std::string folderPath = generateGroupFolderPath(groupId);
+        std::string filePath = folderPath + "/history.json";
+
+        if (!fs::exists(filePath)) return "[]";
+
+        std::ifstream inFile(filePath);
+        if (!inFile.is_open()) return "[]";
+
+        std::string content((std::istreambuf_iterator<char>(inFile)), std::istreambuf_iterator<char>());
+        inFile.close();
+
+        return content.empty() ? "[]" : content;
+    }
+    catch (...) {
+        return "[]";
+    }
+}
+// ==========================================================
+// MESAJLARI "OKUNDU" OLARAK İŞARETLE
+// ==========================================================
+bool FileManager::markMessagesAsRead(const std::string& senderId, const std::string& targetId) {
+    try {
+        std::lock_guard<std::mutex> lock(fileMtx);
+        std::string folderPath = generateChatFolderPath(senderId, targetId);
+        std::string filePath = folderPath + "/history.json";
+
+        if (!fs::exists(filePath)) return false;
+
+        // Dosyayı oku
+        nlohmann::json history;
+        std::ifstream inFile(filePath);
+        if (inFile.is_open()) {
+            inFile >> history;
+            inFile.close();
+        }
+        else {
+            return false;
+        }
+
+        bool updated = false;
+        // Dosyadaki her mesajı kontrol et, targetId'ye gönderilmiş ve okunmamış olanları true yap
+        for (auto& msg : history) {
+            if (msg.contains("alıcıID") && msg["alıcıID"].get<std::string>() == targetId &&
+                msg.contains("MesajDurumuOkundu") && msg["MesajDurumuOkundu"].get<bool>() == false) {
+
+                msg["MesajDurumuOkundu"] = true;
+                updated = true;
+            }
+        }
+
+        // Eğer değişiklik yapıldıysa dosyaya geri yaz
+        if (updated) {
+            std::ofstream outFile(filePath);
+            outFile << history.dump(4);
+            return true;
+        }
+        return false;
+    }
+    catch (...) { return false; }
+}
