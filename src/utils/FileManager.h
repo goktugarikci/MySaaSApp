@@ -2,7 +2,7 @@
 #include <string>
 #include <vector>
 #include <filesystem>
-#include <crow/json.h>
+
 class FileManager {
 public:
     // Dosya türleri
@@ -18,11 +18,6 @@ public:
     // part_content: Dosyanın ham verisi
     // filename: Orijinal dosya adı
     static std::string saveFile(const std::string& part_content, const std::string& original_filename, FileType type);
-
-    // Sınıfınızın public: kısmına eklenecekler
-    static std::string getChatFilePath(const std::string& userA, const std::string& userB);
-    static bool saveChatMessage(const std::string& userA, const std::string& userB, const crow::json::wvalue& messageObj);
-    static crow::json::wvalue getChatHistory(const std::string& userA, const std::string& userB);
 
     // Dosyayı okur (Crow'un dosyayı sunması için)
     static std::string readFile(const std::string& filepath);

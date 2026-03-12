@@ -121,17 +121,6 @@ void WsRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
                 return;
             }
 
-            // YENİ EKLENEN KISIM: Mesajı Veritabanına Kaydet
-            if (msg.has("senderId") && msg.has("targetId") && msg.has("text")) {
-                std::string sId = msg["senderId"].s();
-                std::string tId = msg["targetId"].s();
-                std::string txt = msg["text"].s();
-
-                // Mesajı Messages tablosuna ekle (Tablo adınız veya sütunlarınız farklıysa burayı güncelleyin)
-                std::string sql = "INSERT INTO Messages (SenderID, TargetID, Content) VALUES ('" + sId + "', '" + tId + "', '" + txt + "');";
-                db.executeQuery(sql);
-            }
-
             // Gelen bir mesajı SADECE aynı kanaldaki (channel_id) kişilere gönder
             if (chat_user_channels.count(&conn)) {
                 std::string myChannel = chat_user_channels[&conn];
@@ -181,11 +170,4 @@ void WsRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
         }
         return crow::response(500);
             });
-    // Bildirim Soketi (Konsol hatasını engeller)
-    CROW_WEBSOCKET_ROUTE(app, "/ws/notifications")
-        .onopen([&](crow::websocket::connection& conn) {
-        CROW_LOG_INFO << "Yeni Bildirim Baglantisi";
-            })
-        .onmessage([&](crow::websocket::connection& conn, const std::string& data, bool is_binary) {})
-        .onclose([&](crow::websocket::connection& conn, const std::string& reason, uint16_t code) {});
 }

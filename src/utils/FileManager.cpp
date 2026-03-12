@@ -4,7 +4,7 @@
 #include <sstream>
 #include <iostream>
 #include <chrono>
-#include <sstream>
+
 namespace fs = std::filesystem;
 
 // Rastgele dosya ismi üretici (UUID benzeri)
@@ -69,76 +69,4 @@ std::string FileManager::readFile(const std::string& filepath) {
     std::ostringstream oss;
     oss << ifs.rdbuf();
     return oss.str();
-}
-
-// JSON dosyasına yeni mesajı ekler
-bool FileManager::saveChatMessage(const std::string& userA, const std::string& userB, const crow::json::wvalue& messageObj) {
-    std::string filePath = getChatFilePath(userA, userB);
-    std::vector<crow::json::rvalue> existingMessages;
-
-    // Dosya varsa oku
-    if (fs::exists(filePath)) {
-        std::ifstream inFile(filePath);
-        if (inFile.is_open()) {
-            std::stringstream buffer;
-            buffer << inFile.rdbuf();
-            auto parsed = crow::json::load(buffer.str());
-            if (parsed && parsed.t() == crow::json::type::List) {
-                for (const auto& item : parsed) {
-                    existingMessages.push_back(item);
-                }
-            }
-            inFile.close();
-        }
-    }
-
-    // Yeni mesajı listeye ekle (Bunu yaparken crow::json::wvalue kullanacağız)
-    std::vector<crow::json::wvalue> newArray;
-    for (const auto& oldMsg : existingMessages) {
-        newArray.push_back(oldMsg);
-    }
-
-    // messageObj (yeni atılan mesaj) listeye girer
-    newArray.push_back(messageObj);
-
-    // Dosyaya geri yaz
-    std::ofstream outFile(filePath, std::ios::trunc);
-    if (outFile.is_open()) {
-        outFile << crow::json::wvalue(newArray).dump();
-        outFile.close();
-        return true;
-    }
-    return false;
-}
-
-// Tüm geçmişi okur ve arayüze (Frontend) göndermeye hazır hale getirir
-crow::json::wvalue FileManager::getChatHistory(const std::string& userA, const std::string& userB) {
-    std::string filePath = getChatFilePath(userA, userB);
-
-    if (fs::exists(filePath)) {
-        std::ifstream inFile(filePath);
-        if (inFile.is_open()) {
-            std::stringstream buffer;
-            buffer << inFile.rdbuf();
-            auto parsed = crow::json::load(buffer.str());
-            inFile.close();
-            if (parsed) {
-                return crow::json::wvalue(parsed);
-            }
-        }
-    }
-    // Dosya yoksa veya boşsa boş bir liste döndür
-    return crow::json::wvalue(std::vector<crow::json::wvalue>());
-}
-
-// İki kullanıcı için benzersiz, alfabetik bir dosya adı üretir (Alice ve Bob / Bob ve Alice hep aynı dosyayı verir)
-std::string FileManager::getChatFilePath(const std::string& userA, const std::string& userB) {
-    std::string first = (userA < userB) ? userA : userB;
-    std::string second = (userA < userB) ? userB : userA;
-
-    // Klasör yoksa oluştur
-    if (!fs::exists("chat_data")) {
-        fs::create_directory("chat_data");
-    }
-    return "chat_data/chat_" + first + "_" + second + ".json";
 }
