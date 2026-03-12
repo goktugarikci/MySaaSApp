@@ -93,6 +93,7 @@ void MessageRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db
         if (!Security::checkAuth(req, db)) return crow::response(401);
         auto x = crow::json::load(req.body);
         if (!x || !x.has("content")) return crow::response(400);
+<<<<<<< HEAD
 
         std::string attachmentUrl = x.has("attachment_url") ? std::string(x["attachment_url"].s()) : "";
         std::string userId = Security::getUserIdFromHeader(req);
@@ -159,6 +160,20 @@ void MessageRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db
         catch (...) {
             return crow::response(200, "[]");
         }
+=======
+
+        std::string attachmentUrl = x.has("attachment_url") ? std::string(x["attachment_url"].s()) : "";
+        std::string userId = Security::getUserIdFromHeader(req);
+
+        if (db.sendMessage(channelId, userId, std::string(x["content"].s()), attachmentUrl)) {
+
+            // LOG: Yeni Mesaj Gönderimi
+            db.logAction(userId, "SEND_MESSAGE", channelId, "Kullanici bir kanala veya DM'e yeni mesaj gonderdi.");
+
+            return crow::response(201, "Mesaj gonderildi.");
+        }
+        return crow::response(500);
+>>>>>>> parent of 25d01e2 (v)
             });
 
     // ==========================================================

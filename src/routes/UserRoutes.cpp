@@ -302,5 +302,8 @@ void UserRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
         return crow::response(200, res);
             });
 
+<<<<<<< HEAD
+>>>>>>> parent of 25d01e2 (v)
+=======
 >>>>>>> parent of 25d01e2 (v)
 }
