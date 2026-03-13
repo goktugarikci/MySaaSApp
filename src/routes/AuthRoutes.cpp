@@ -48,37 +48,35 @@ void AuthRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
         return crow::response(401, "Gecersiz e-posta veya sifre.");
             });
 
-    // KULLANICI KAYIT OLMA (REGISTER) - YENİ ÖZELLİKLERLE
-    CROW_ROUTE(app, "/api/auth/register").methods(crow::HTTPMethod::POST)
-        ([&db](const crow::request& req) {
-        auto body = crow::json::load(req.body);
+    // src/routes/AuthRoutes.cpp içindeki register rotasını bul ve bununla değiştir:
 
-        // 1. JSON geçerli mi ve ZORUNLU alanlar var mı kontrol et
-        if (!body || !body.has("name") || !body.has("email") || !body.has("password")) {
-            return crow::response(400, "Zorunlu alanlar eksik (name, email, password gerekli).");
+    CROW_ROUTE(app, "/api/auth/register").methods("POST"_method)
+        ([&db](const crow::request& req) {
+        auto x = crow::json::load(req.body);
+        if (!x || !x.has("name") || !x.has("email") || !x.has("password")) {
+            return crow::response(400, "Ad, email ve sifre zorunludur.");
         }
 
-        std::string name = std::string(body["name"].s());
-        std::string email = std::string(body["email"].s());
-        std::string password = std::string(body["password"].s());
+        std::string name = std::string(x["name"].s());
+        std::string email = std::string(x["email"].s());
+        std::string password = std::string(x["password"].s());
 
-        // 2. YENİ EKLENEN: İsteğe bağlı (Optional) alanları güvenli bir şekilde oku
-        // Kullanıcı bu alanları göndermediyse sistem çökmez, boş ("") kabul edilir.
-        std::string username = body.has("username") ? std::string(body["username"].s()) : "";
-        std::string phone_number = body.has("phone_number") ? std::string(body["phone_number"].s()) : "";
+        // Opsiyonel alanlar (Frontend göndermezse boş kalsın)
+        std::string username = x.has("username") ? std::string(x["username"].s()) : name;
+        std::string phone = x.has("phone_number") ? std::string(x["phone_number"].s()) : "";
 
-        // 3. E-posta adresi sistemde zaten kayıtlı mı kontrol et (409 Conflict)
-        if (db.getUser(email)) {
+        // E-posta zaten var mı?
+        if (db.getUser(email).has_value()) {
             return crow::response(409, "Bu e-posta adresi zaten kayitli.");
         }
 
-        // 4. Veritabanına yeni kullanıcıyı kaydet
-        // (Varsayılan olarak is_system_admin = false gönderiyoruz)
-        if (db.createUser(name, email, password, false, username, phone_number)) {
-            return crow::response(201, "Kayit basariyla tamamlandi.");
+        // Veritabanına kaydet (Admin değil olarak: false)
+        if (db.createUser(name, email, password, false, username, phone)) {
+            return crow::response(201, "Kullanici basariyla olusturuldu.");
         }
 
-        return crow::response(500, "Sunucu hatasi: Kullanici olusturulamadi.");
+        // Eğer buraya düşerse veritabanı yazma hatası (500)
+        return crow::response(500, "Sunucu hatasi: Kullanici olusturulamadi (Veritabani hatasi olabilir).");
             });
 
 

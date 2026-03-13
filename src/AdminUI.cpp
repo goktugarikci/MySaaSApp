@@ -97,7 +97,7 @@ bool show_audit_logs = false;
 std::string active_stats_id = "";
 
 // =============================================================
-// MUHTEŞEM ENDPOINT KÜTÜPHANESİ 
+// MUHTEŞEM ENDPOINT KÜTÜPHANESİ (SENİN TAM LİSTEN)
 // =============================================================
 int api_method_idx = 0;
 const char* api_methods[] = { "GET", "POST", "PUT", "DELETE" };
@@ -217,7 +217,6 @@ EndpointDef predefined_endpoints[] = {
 // YARDIMCI FONKSİYONLAR VE SAĞ TIK KOPYALAMA MOTORU 
 // =============================================================
 
-// ÇÖKMEYİ ENGELLEYEN MÜKEMMEL KOPYALAMA MOTORU (Culling Korumalı)
 void DrawCopyableText(const std::string& text, const std::string& copyLabel, int idGen) {
     ImGui::PushID(idGen);
     std::string safeText = text.empty() ? "-" : text;
@@ -344,18 +343,18 @@ void UpdateHardwareMetrics() {
 }
 
 // =============================================================
-// ASENKRON VERİ ÇEKME (DÜZELTİLMİŞ VE GÜVENLİ VERSİYON)
+// ASENKRON VERİ ÇEKME (JSON Parse Korumalı + X-Admin-Key Güvenliği)
 // =============================================================
 
 void FetchUsersAsync() {
     if (isFetchingUsers) return;
     isFetchingUsers = true;
     std::thread([]() {
-        cpr::Response r = cpr::Get(cpr::Url{ API_BASE_URL + "/api/admin/users" }, cpr::Header{ {"Authorization", jwtToken} });
+        cpr::Response r = cpr::Get(cpr::Url{ API_BASE_URL + "/api/admin/users" }, cpr::Header{ {"Authorization", jwtToken}, {"X-Admin-Key", "MYSASS_ADMIN_SECRET_998877"} });
         if (r.status_code == 200) {
             try {
-                auto j = json::parse(r.text, nullptr, false);
-                if (!j.is_discarded() && j.is_array()) {
+                auto j = json::parse(r.text);
+                if (j.is_array()) {
                     std::lock_guard<std::mutex> lock(userListMutex);
                     userList.clear();
                     for (const auto& item : j) {
@@ -370,10 +369,7 @@ void FetchUsersAsync() {
                     }
                 }
             }
-            catch (const std::exception& e) { AddConsoleLog("[HATA] Kullanicilari cekerken hata: " + std::string(e.what())); }
-        }
-        else if (r.status_code == 403) {
-            AddConsoleLog("[UYARI] Oturum suresi dolmus. Lutfen API Test Aracindan 'Login' olun.");
+            catch (...) {}
         }
         isFetchingUsers = false;
         }).detach();
@@ -383,11 +379,11 @@ void FetchServersAsync() {
     if (isFetchingServers) return;
     isFetchingServers = true;
     std::thread([]() {
-        cpr::Response r = cpr::Get(cpr::Url{ API_BASE_URL + "/api/admin/servers" }, cpr::Header{ {"Authorization", jwtToken} });
+        cpr::Response r = cpr::Get(cpr::Url{ API_BASE_URL + "/api/admin/servers" }, cpr::Header{ {"Authorization", jwtToken}, {"X-Admin-Key", "MYSASS_ADMIN_SECRET_998877"} });
         if (r.status_code == 200) {
             try {
-                auto j = json::parse(r.text, nullptr, false);
-                if (!j.is_discarded() && j.is_array()) {
+                auto j = json::parse(r.text);
+                if (j.is_array()) {
                     std::lock_guard<std::mutex> lock(serverListMutex);
                     serverList.clear();
                     for (const auto& item : j) {
@@ -400,7 +396,7 @@ void FetchServersAsync() {
                     }
                 }
             }
-            catch (const std::exception& e) { AddConsoleLog("[HATA] Sunuculari cekerken hata: " + std::string(e.what())); }
+            catch (...) {}
         }
         isFetchingServers = false;
         }).detach();
@@ -410,11 +406,11 @@ void FetchBanListAsync() {
     if (isFetchingBans) return;
     isFetchingBans = true;
     std::thread([]() {
-        cpr::Response r = cpr::Get(cpr::Url{ API_BASE_URL + "/api/admin/banlist" }, cpr::Header{ {"Authorization", jwtToken} });
+        cpr::Response r = cpr::Get(cpr::Url{ API_BASE_URL + "/api/admin/banlist" }, cpr::Header{ {"Authorization", jwtToken}, {"X-Admin-Key", "MYSASS_ADMIN_SECRET_998877"} });
         if (r.status_code == 200) {
             try {
-                auto j = json::parse(r.text, nullptr, false);
-                if (!j.is_discarded() && j.is_array()) {
+                auto j = json::parse(r.text);
+                if (j.is_array()) {
                     std::lock_guard<std::mutex> lock(banListMutex);
                     banList.clear();
                     for (const auto& b : j) {
@@ -422,7 +418,7 @@ void FetchBanListAsync() {
                     }
                 }
             }
-            catch (const std::exception& e) { AddConsoleLog("[HATA] Ban listesi cekerken hata: " + std::string(e.what())); }
+            catch (...) {}
         }
         isFetchingBans = false;
         }).detach();
@@ -432,11 +428,11 @@ void FetchAuditLogsAsync() {
     if (isFetchingLogs) return;
     isFetchingLogs = true;
     std::thread([]() {
-        cpr::Response r = cpr::Get(cpr::Url{ API_BASE_URL + "/api/admin/logs" }, cpr::Header{ {"Authorization", jwtToken} });
+        cpr::Response r = cpr::Get(cpr::Url{ API_BASE_URL + "/api/admin/logs" }, cpr::Header{ {"Authorization", jwtToken}, {"X-Admin-Key", "MYSASS_ADMIN_SECRET_998877"} });
         if (r.status_code == 200) {
             try {
-                auto j = json::parse(r.text, nullptr, false);
-                if (!j.is_discarded() && j.is_array()) {
+                auto j = json::parse(r.text);
+                if (j.is_array()) {
                     std::lock_guard<std::mutex> lock(auditLogMutex);
                     auditLogsList.clear();
                     for (const auto& l : j) {
@@ -446,34 +442,36 @@ void FetchAuditLogsAsync() {
                             l.value("action", ""),
                             l.value("target", ""),
                             l.value("details", ""),
-                            l.value("date", "")
+                            l.value("timestamp", "")
                             });
                     }
                 }
             }
-            catch (const std::exception& e) { AddConsoleLog("[HATA] Audit loglari cekerken hata: " + std::string(e.what())); }
+            catch (...) {}
         }
         isFetchingLogs = false;
         }).detach();
 }
 
+// REST API isteği atıldığında Backend bu detaylı istihbaratı sağlamayabilir.
+// Ekran çökmemesi için try-catch ile korumalıdır.
 void FetchUserStatsAsync(std::string userId) {
     if (isFetchingStats) return;
     isFetchingStats = true;
     { std::lock_guard<std::mutex> lock(statsMutex); activeStatsServers.clear(); activeStatsFriends.clear(); }
     std::thread([userId]() {
-        cpr::Response r = cpr::Get(cpr::Url{ API_BASE_URL + "/api/admin/users/" + userId + "/servers" }, cpr::Header{ {"Authorization", jwtToken} });
+        cpr::Response r = cpr::Get(cpr::Url{ API_BASE_URL + "/api/admin/users/" + userId + "/servers" }, cpr::Header{ {"Authorization", jwtToken}, {"X-Admin-Key", "MYSASS_ADMIN_SECRET_998877"} });
         if (r.status_code == 200) {
             try {
-                auto j = json::parse(r.text, nullptr, false);
-                if (!j.is_discarded() && j.contains("servers") && j["servers"].is_array()) {
+                auto j = json::parse(r.text);
+                if (j.contains("servers") && j["servers"].is_array()) {
                     std::lock_guard<std::mutex> lock(statsMutex);
                     for (const auto& s : j["servers"]) {
                         activeStatsServers.push_back({ s.value("server_id", ""), s.value("server_name", ""), s.value("owner_id", "") });
                     }
                 }
             }
-            catch (const std::exception& e) { AddConsoleLog("[HATA] Kullanici istihbarati cekerken hata: " + std::string(e.what())); }
+            catch (...) {}
         }
         isFetchingStats = false;
         }).detach();
@@ -484,54 +482,58 @@ void FetchServerStatsAsync(std::string serverId) {
     isFetchingServerStats = true;
     { std::lock_guard<std::mutex> lock(statsMutex); activeServerMembersList.clear(); activeServerLogsList.clear(); }
     std::thread([serverId]() {
-        cpr::Response r = cpr::Get(cpr::Url{ API_BASE_URL + "/api/admin/servers/" + serverId + "/details" }, cpr::Header{ {"Authorization", jwtToken} });
+        cpr::Response r = cpr::Get(cpr::Url{ API_BASE_URL + "/api/admin/server-logs/" + serverId }, cpr::Header{ {"Authorization", jwtToken}, {"X-Admin-Key", "MYSASS_ADMIN_SECRET_998877"} });
         if (r.status_code == 200) {
             try {
-                auto j = json::parse(r.text, nullptr, false);
-                if (!j.is_discarded()) {
+                auto j = json::parse(r.text);
+                if (j.is_array()) {
                     std::lock_guard<std::mutex> lock(statsMutex);
-
-                    if (j.contains("members") && j["members"].is_array()) {
-                        for (const auto& m : j["members"]) {
-                            activeServerMembersList.push_back({ m.value("id", ""), m.value("name", ""), m.value("status", "Offline") });
-                        }
-                    }
-
-                    if (j.contains("logs") && j["logs"].is_array()) {
-                        for (const auto& l : j["logs"]) {
-                            activeServerLogsList.push_back({ l.value("time", ""), l.value("action", ""), l.value("details", "") });
-                        }
+                    for (const auto& l : j) {
+                        activeServerLogsList.push_back({ l.value("timestamp", ""), l.value("action", ""), l.value("details", "") });
                     }
                 }
             }
-            catch (const std::exception& e) { AddConsoleLog("[HATA] Sunucu gozetimi cekerken hata: " + std::string(e.what())); }
+            catch (...) {}
         }
         isFetchingServerStats = false;
         }).detach();
 }
 
 void SendApiRequest() {
-    if (is_api_loading) return; is_api_loading = true; strcpy_s(api_response_buffer, "Islem sunucuya iletiliyor..."); api_last_status = 0;
+    if (is_api_loading) return; is_api_loading = true;
+    strcpy_s(api_response_buffer, "Islem sunucuya iletiliyor..."); api_last_status = 0;
     std::string method = api_methods[api_method_idx]; std::string endpoint = api_url_buffer; std::string body = api_body_buffer;
     if (endpoint.rfind("/", 0) != 0) endpoint = "/" + endpoint; std::string url = API_BASE_URL + endpoint;
     AddConsoleLog("[API ISTEGI] " + method + " " + endpoint);
+
     std::thread([method, url, body, endpoint]() {
-        cpr::Response r; cpr::Header headers = { {"Authorization", jwtToken}, {"Content-Type", "application/json"} };
+        // GİZLİ ADMIN ANAHTARI BURADA EKLENİYOR
+        cpr::Header headers = {
+            {"Authorization", jwtToken},
+            {"Content-Type", "application/json"},
+            {"X-Admin-Key", "MYSASS_ADMIN_SECRET_998877"}
+        };
+
+        cpr::Response r;
         if (method == "GET") r = cpr::Get(cpr::Url{ url }, headers); else if (method == "POST") r = cpr::Post(cpr::Url{ url }, headers, cpr::Body{ body }); else if (method == "PUT") r = cpr::Put(cpr::Url{ url }, headers, cpr::Body{ body }); else if (method == "DELETE") r = cpr::Delete(cpr::Url{ url }, headers);
+
         std::lock_guard<std::mutex> lock(api_response_mutex); api_last_status = r.status_code;
         try {
+            // Eger gelen yanit JSON ise formatla, degilse direkt string olarak bas (Hata onlendi)
             auto j = nlohmann::json::parse(r.text);
             thread_response_temp = j.dump(4);
-
-            // --- YENİ EKLENEN: OTOMATİK TOKEN YAKALAYICI ---
             if (r.status_code == 200 && endpoint == "/api/auth/login" && j.contains("token")) {
-                jwtToken = "Bearer " + j["token"].get<std::string>();
+                jwtToken = j["token"].get<std::string>();
                 AddConsoleLog("[SISTEM] Admin yetkisi alindi. Panel kilidi acildi!");
             }
-            // ------------------------------------------------
         }
-        catch (...) { thread_response_temp = r.text.empty() ? "(Bos yanit)" : r.text; }
-        if (r.status_code == 0) thread_response_temp = "Baglanti Hatasi: Sunucu kapali olabilir."; AddConsoleLog("[API YANIT] Status: " + std::to_string(api_last_status) + " -> " + endpoint); new_response_ready = true; is_api_loading = false;
+        catch (...) {
+            thread_response_temp = r.text.empty() ? "(Bos veya metin yanit)" : r.text;
+        }
+        if (r.status_code == 0) thread_response_temp = "Baglanti Hatasi: Sunucu kapali olabilir.";
+
+        AddConsoleLog("[API YANIT] Status: " + std::to_string(api_last_status));
+        new_response_ready = true; is_api_loading = false;
         }).detach();
 }
 
@@ -548,8 +550,22 @@ void ProcessConsoleCommand(const std::string& cmd) {
     else if (action == "restart") { std::thread([]() { if (is_server_running) StopBackendServer(); std::this_thread::sleep_for(std::chrono::seconds(2)); StartBackendServer(); }).detach(); }
     else if (action == "logs") { show_audit_logs = true; FetchAuditLogsAsync(); }
     else if (action == "backup") { try { if (!std::filesystem::exists("backups")) std::filesystem::create_directory("backups"); std::string dest; if (args.size() > 1) { dest = "backups/" + args[1] + ".db"; } else { auto t = std::time(nullptr); auto tm = *std::localtime(&t); const char* days[] = { "Paz", "Pzt", "Sal", "Car", "Per", "Cum", "Cmt" }; char buf[256]; sprintf_s(buf, "guncelleme_oncesi_%02d-%02d-%04d_%02d-%02d_%s.db", tm.tm_mday, tm.tm_mon + 1, tm.tm_year + 1900, tm.tm_hour, tm.tm_min, days[tm.tm_wday]); dest = "backups/" + std::string(buf); } if (std::filesystem::exists("mysaasapp.db")) { std::filesystem::copy_file("mysaasapp.db", dest, std::filesystem::copy_options::overwrite_existing); AddConsoleLog("[BASARILI] Veritabani yedeklendi -> " + dest); } else { AddConsoleLog("[HATA] 'mysaasapp.db' bulunamadi."); } } catch (const std::exception& e) { AddConsoleLog(std::string("[HATA] Yedekleme basarisiz: ") + e.what()); } }
-    else if (action == "ban" && args.size() > 1) { std::string targetId = args[1]; AddConsoleLog("[BILGI] Yasaklaniyor: " + targetId); std::thread([targetId]() { cpr::Response r = cpr::Post(cpr::Url{ API_BASE_URL + "/api/admin/ban" }, cpr::Header{ {"Authorization", jwtToken}, {"Content-Type", "application/json"} }, cpr::Body{ "{\"user_id\":\"" + targetId + "\"}" }); if (r.status_code == 200) { AddConsoleLog("[BASARILI] Yasaklandi."); FetchBanListAsync(); FetchUsersAsync(); } else AddConsoleLog("[HATA] Yasaklama basarisiz"); }).detach(); }
-    else if (action == "unban" && args.size() > 1) { std::string targetId = args[1]; AddConsoleLog("[BILGI] Yasak kaldiriliyor: " + targetId); std::thread([targetId]() { cpr::Response r = cpr::Post(cpr::Url{ API_BASE_URL + "/api/admin/unban" }, cpr::Header{ {"Authorization", jwtToken}, {"Content-Type", "application/json"} }, cpr::Body{ "{\"user_id\":\"" + targetId + "\"}" }); if (r.status_code == 200) { AddConsoleLog("[BASARILI] Yasak kaldirildi."); FetchBanListAsync(); FetchUsersAsync(); } else AddConsoleLog("[HATA] Islem basarisiz"); }).detach(); }
+    else if (action == "ban" && args.size() > 1) {
+        std::string targetId = args[1]; AddConsoleLog("[BILGI] Yasaklaniyor: " + targetId);
+        std::thread([targetId]() {
+            cpr::Response r = cpr::Post(cpr::Url{ API_BASE_URL + "/api/admin/users/" + targetId + "/ban" }, cpr::Header{ {"Authorization", jwtToken}, {"Content-Type", "application/json"}, {"X-Admin-Key", "MYSASS_ADMIN_SECRET_998877"} }, cpr::Body{ "{\"reason\":\"Sistem Yoneticisi\"}" });
+            if (r.status_code == 200) { AddConsoleLog("[BASARILI] Yasaklandi."); FetchBanListAsync(); FetchUsersAsync(); }
+            else AddConsoleLog("[HATA] Yasaklama basarisiz: " + std::to_string(r.status_code));
+            }).detach();
+    }
+    else if (action == "unban" && args.size() > 1) {
+        std::string targetId = args[1]; AddConsoleLog("[BILGI] Yasak kaldiriliyor: " + targetId);
+        std::thread([targetId]() {
+            cpr::Response r = cpr::Post(cpr::Url{ API_BASE_URL + "/api/admin/users/" + targetId + "/unban" }, cpr::Header{ {"Authorization", jwtToken}, {"X-Admin-Key", "MYSASS_ADMIN_SECRET_998877"} });
+            if (r.status_code == 200) { AddConsoleLog("[BASARILI] Yasak kaldirildi."); FetchBanListAsync(); FetchUsersAsync(); }
+            else AddConsoleLog("[HATA] Islem basarisiz: " + std::to_string(r.status_code));
+            }).detach();
+    }
     else if (action == "banlist") { show_ban_list = true; FetchBanListAsync(); }
     else if (action == "statsuser" && args.size() > 1) { active_stats_id = args[1]; show_user_stats = true; FetchUserStatsAsync(active_stats_id); }
     else if (action == "statsserver" && args.size() > 1) { active_stats_id = args[1]; show_server_stats = true; FetchServerStatsAsync(active_stats_id); }
@@ -559,7 +575,23 @@ void ProcessConsoleCommand(const std::string& cmd) {
 // =============================================================
 // UI PANELLERİ ÇİZİM MANTIĞI VE LOG RENKLENDİRME MOTORU
 // =============================================================
-void DrawMainMenuBar() { if (ImGui::BeginMainMenuBar()) { if (ImGui::BeginMenu("Paneller")) { ImGui::MenuItem("Sunucu Kontrol Merkezi", NULL, &show_server_control); ImGui::MenuItem("Sistem Monitoru", NULL, &show_dashboard); ImGui::MenuItem("Kullanici Yonetimi (CRM)", NULL, &show_user_management); ImGui::MenuItem("Sunucu Yonetimi (Workspace)", NULL, &show_server_management); ImGui::Separator(); ImGui::MenuItem("Sistem Konsolu", NULL, &show_console_window); ImGui::MenuItem("API Test Araci (Postman)", NULL, &show_api_tester_window); ImGui::Separator(); if (ImGui::MenuItem("Yasakli Kullanicilar (Banlist)")) { show_ban_list = true; FetchBanListAsync(); } if (ImGui::MenuItem("Sistem Loglari (Audit)")) { show_audit_logs = true; FetchAuditLogsAsync(); } ImGui::EndMenu(); } ImGui::EndMainMenuBar(); } }
+void DrawMainMenuBar() {
+    if (ImGui::BeginMainMenuBar()) {
+        if (ImGui::BeginMenu("Paneller")) {
+            ImGui::MenuItem("Sunucu Kontrol Merkezi", NULL, &show_server_control);
+            ImGui::MenuItem("Sistem Monitoru", NULL, &show_dashboard);
+            ImGui::MenuItem("Kullanici Yonetimi (CRM)", NULL, &show_user_management);
+            ImGui::MenuItem("Sunucu Yonetimi (Workspace)", NULL, &show_server_management);
+            ImGui::Separator();
+            ImGui::MenuItem("Sistem Konsolu", NULL, &show_console_window);
+            ImGui::MenuItem("API Test Araci (Postman)", NULL, &show_api_tester_window);
+            ImGui::Separator();
+            if (ImGui::MenuItem("Yasakli Kullanicilar (Banlist)")) { show_ban_list = true; FetchBanListAsync(); }
+            if (ImGui::MenuItem("Sistem Loglari (Audit)")) { show_audit_logs = true; FetchAuditLogsAsync(); }
+            ImGui::EndMenu();
+        } ImGui::EndMainMenuBar();
+    }
+}
 
 void DrawServerControlPanel() {
     if (!show_server_control) return; ImGui::SetNextWindowPos(ImVec2(10, 30), ImGuiCond_FirstUseEver); ImGui::SetNextWindowSize(ImVec2(450, 300), ImGuiCond_FirstUseEver);
@@ -596,11 +628,66 @@ void DrawServerControlPanel() {
     ImGui::EndChild(); ImGui::End();
 }
 
-void DrawDashboard() { if (!show_dashboard) return; ImGui::SetNextWindowPos(ImVec2(10, 340), ImGuiCond_FirstUseEver); ImGui::SetNextWindowSize(ImVec2(450, 410), ImGuiCond_FirstUseEver); ImGui::Begin(">> SISTEM MONITORU <<", &show_dashboard); int t_users = 0, o_users = 0; { std::lock_guard<std::mutex> lock(userListMutex); t_users = userList.size(); for (const auto& u : userList) { if (u.status == "Online") o_users++; } } ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Ag Istatistikleri"); ImGui::Separator(); ImGui::Columns(3, "net_stats", false); ImGui::Text("Kayitli"); ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%d Kisi", t_users); ImGui::NextColumn(); ImGui::Text("Aktif"); ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.2f, 1.0f), "%d Kisi", o_users); ImGui::NextColumn(); ImGui::Text("Sunucu"); ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%d Adet", (int)serverList.size()); ImGui::Columns(1); ImGui::Spacing(); ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "Kaynak Tuketimi"); ImGui::Separator(); char cpuOverlay[64]; sprintf_s(cpuOverlay, "CPU: %.2f%%", app_cpu_usage); ImGui::PlotLines("##AppCPU", app_cpu_graph, 90, time_offset, cpuOverlay, 0.0f, 100.0f, ImVec2(-1, 40)); char ramOverlay[64]; sprintf_s(ramOverlay, "RAM: %.2f MB", app_ram_usage_mb); ImGui::PlotLines("##AppRAM", app_ram_graph, 90, time_offset, ramOverlay, 0.0f, FLT_MAX, ImVec2(-1, 40)); ImGui::Spacing(); ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Fiziksel Sunucu"); ImGui::Separator(); char sysRam[64]; sprintf_s(sysRam, "RAM: %.1f / %.1f GB", current_ram_used_gb, current_ram_total_gb); ImGui::ProgressBar(current_ram_percent, ImVec2(-1, 0), sysRam); ImGui::Spacing(); char diskOverlay[64]; sprintf_s(diskOverlay, "DB Boyutu: %.2f MB", db_size_mb); ImGui::ProgressBar(0.0f, ImVec2(-1, 0), diskOverlay); ImGui::End(); }
+void DrawDashboard() {
+    if (!show_dashboard) return; ImGui::SetNextWindowPos(ImVec2(10, 340), ImGuiCond_FirstUseEver); ImGui::SetNextWindowSize(ImVec2(450, 410), ImGuiCond_FirstUseEver);
+    ImGui::Begin(">> SISTEM MONITORU <<", &show_dashboard);
+    int t_users = 0, o_users = 0; { std::lock_guard<std::mutex> lock(userListMutex); t_users = userList.size(); for (const auto& u : userList) { if (u.status == "Online") o_users++; } }
+    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Ag Istatistikleri"); ImGui::Separator();
+    ImGui::Columns(3, "net_stats", false); ImGui::Text("Kayitli"); ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%d Kisi", t_users); ImGui::NextColumn(); ImGui::Text("Aktif"); ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.2f, 1.0f), "%d Kisi", o_users); ImGui::NextColumn(); ImGui::Text("Sunucu"); ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%d Adet", (int)serverList.size()); ImGui::Columns(1); ImGui::Spacing();
+    ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "Kaynak Tuketimi"); ImGui::Separator();
+    char cpuOverlay[64]; sprintf_s(cpuOverlay, "CPU: %.2f%%", app_cpu_usage); ImGui::PlotLines("##AppCPU", app_cpu_graph, 90, time_offset, cpuOverlay, 0.0f, 100.0f, ImVec2(-1, 40));
+    char ramOverlay[64]; sprintf_s(ramOverlay, "RAM: %.2f MB", app_ram_usage_mb); ImGui::PlotLines("##AppRAM", app_ram_graph, 90, time_offset, ramOverlay, 0.0f, FLT_MAX, ImVec2(-1, 40)); ImGui::Spacing();
+    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Fiziksel Sunucu"); ImGui::Separator();
+    char sysRam[64]; sprintf_s(sysRam, "RAM: %.1f / %.1f GB", current_ram_used_gb, current_ram_total_gb); ImGui::ProgressBar(current_ram_percent, ImVec2(-1, 0), sysRam); ImGui::Spacing();
+    char diskOverlay[64]; sprintf_s(diskOverlay, "DB Boyutu: %.2f MB", db_size_mb); ImGui::ProgressBar(0.0f, ImVec2(-1, 0), diskOverlay); ImGui::End();
+}
 
-void DrawUserManagement() { if (!show_user_management) return; ImGui::SetNextWindowPos(ImVec2(470, 30), ImGuiCond_FirstUseEver); ImGui::SetNextWindowSize(ImVec2(880, 200), ImGuiCond_FirstUseEver); ImGui::Begin(">> KULLANICI YONETIMI (CRM) <<", &show_user_management); if (ImGui::Button("Yenile (Refresh)")) FetchUsersAsync(); if (isFetchingUsers) { ImGui::SameLine(); ImGui::TextColored(ImVec4(1, 1, 0, 1), " Guncelleniyor..."); } ImGui::Spacing(); if (ImGui::BeginTable("UsersTable", 7, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY)) { ImGui::TableSetupColumn("ID"); ImGui::TableSetupColumn("Ad Soyad"); ImGui::TableSetupColumn("E-Posta"); ImGui::TableSetupColumn("Durum"); ImGui::TableSetupColumn("Abonelik"); ImGui::TableSetupColumn("Yetki"); ImGui::TableSetupColumn("Islem"); ImGui::TableHeadersRow(); std::lock_guard<std::mutex> lock(userListMutex); for (int i = 0; i < userList.size(); i++) { ImGui::TableNextRow(); ImGui::TableSetColumnIndex(0); DrawCopyableText(userList[i].id, "ID Kopyala", i * 10 + 1); ImGui::TableSetColumnIndex(1); DrawCopyableText(userList[i].name, "Ismi Kopyala", i * 10 + 2); ImGui::TableSetColumnIndex(2); DrawCopyableText(userList[i].email, "E-Postayi Kopyala", i * 10 + 3); ImGui::TableSetColumnIndex(3); if (userList[i].status == "Online") ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.2f, 1.0f), "Online"); else if (userList[i].status == "Banned") ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "Banned"); else ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Offline"); ImGui::TableSetColumnIndex(4); ImGui::Text("%s", userList[i].sub_level.c_str()); ImGui::TableSetColumnIndex(5); ImGui::Text("%s", userList[i].role.c_str()); ImGui::TableSetColumnIndex(6); std::string btn = "Detay##U" + std::to_string(i); if (ImGui::Button(btn.c_str())) ProcessConsoleCommand("statsuser " + userList[i].id); ImGui::SameLine(); std::string btnBan = "Ban##U" + std::to_string(i); if (ImGui::Button(btnBan.c_str())) ProcessConsoleCommand("ban " + userList[i].id); } ImGui::EndTable(); } ImGui::End(); }
+void DrawUserManagement() {
+    if (!show_user_management) return; ImGui::SetNextWindowPos(ImVec2(470, 30), ImGuiCond_FirstUseEver); ImGui::SetNextWindowSize(ImVec2(880, 200), ImGuiCond_FirstUseEver);
+    ImGui::Begin(">> KULLANICI YONETIMI (CRM) <<", &show_user_management);
+    if (ImGui::Button("Yenile (Refresh)")) FetchUsersAsync();
+    if (isFetchingUsers) { ImGui::SameLine(); ImGui::TextColored(ImVec4(1, 1, 0, 1), " Guncelleniyor..."); }
+    ImGui::Spacing();
+    if (ImGui::BeginTable("UsersTable", 7, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY)) {
+        ImGui::TableSetupColumn("ID"); ImGui::TableSetupColumn("Ad Soyad"); ImGui::TableSetupColumn("E-Posta"); ImGui::TableSetupColumn("Durum"); ImGui::TableSetupColumn("Abonelik"); ImGui::TableSetupColumn("Yetki"); ImGui::TableSetupColumn("Islem"); ImGui::TableHeadersRow();
+        std::lock_guard<std::mutex> lock(userListMutex);
+        for (int i = 0; i < userList.size(); i++) {
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0); DrawCopyableText(userList[i].id, "ID Kopyala", i * 10 + 1);
+            ImGui::TableSetColumnIndex(1); DrawCopyableText(userList[i].name, "Ismi Kopyala", i * 10 + 2);
+            ImGui::TableSetColumnIndex(2); DrawCopyableText(userList[i].email, "E-Postayi Kopyala", i * 10 + 3);
+            ImGui::TableSetColumnIndex(3);
+            if (userList[i].status == "Online") ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.2f, 1.0f), "Online"); else if (userList[i].status == "Banned") ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "Banned"); else ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Offline");
+            ImGui::TableSetColumnIndex(4); ImGui::Text("%s", userList[i].sub_level.c_str());
+            ImGui::TableSetColumnIndex(5); ImGui::Text("%s", userList[i].role.c_str());
+            ImGui::TableSetColumnIndex(6);
+            std::string btn = "Detay##U" + std::to_string(i); if (ImGui::Button(btn.c_str())) ProcessConsoleCommand("statsuser " + userList[i].id);
+            ImGui::SameLine(); std::string btnBan = "Ban##U" + std::to_string(i); if (ImGui::Button(btnBan.c_str())) ProcessConsoleCommand("ban " + userList[i].id);
+        }
+        ImGui::EndTable();
+    } ImGui::End();
+}
 
-void DrawServerManagement() { if (!show_server_management) return; ImGui::SetNextWindowPos(ImVec2(470, 240), ImGuiCond_FirstUseEver); ImGui::SetNextWindowSize(ImVec2(880, 150), ImGuiCond_FirstUseEver); ImGui::Begin(">> SUNUCU (WORKSPACE) YONETIMI <<", &show_server_management); if (ImGui::Button("Yenile (Refresh)")) FetchServersAsync(); if (isFetchingServers) { ImGui::SameLine(); ImGui::TextColored(ImVec4(1, 1, 0, 1), " Guncelleniyor..."); } ImGui::Spacing(); if (ImGui::BeginTable("ServersTable", 5, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY)) { ImGui::TableSetupColumn("ID"); ImGui::TableSetupColumn("Sunucu Adi"); ImGui::TableSetupColumn("Kurucu ID"); ImGui::TableSetupColumn("Uye"); ImGui::TableSetupColumn("Islem"); ImGui::TableHeadersRow(); std::lock_guard<std::mutex> lock(serverListMutex); for (int i = 0; i < serverList.size(); i++) { ImGui::TableNextRow(); ImGui::TableSetColumnIndex(0); DrawCopyableText(serverList[i].id, "Sunucu ID Kopyala", i * 10 + 2000); ImGui::TableSetColumnIndex(1); DrawCopyableText(serverList[i].name, "Sunucu Adi Kopyala", i * 10 + 2001); ImGui::TableSetColumnIndex(2); DrawCopyableText(serverList[i].owner_id, "Kurucu ID Kopyala", i * 10 + 2002); ImGui::TableSetColumnIndex(3); ImGui::Text("%d", serverList[i].member_count); ImGui::TableSetColumnIndex(4); std::string btn = "Gozetim##S" + std::to_string(i); if (ImGui::Button(btn.c_str())) ProcessConsoleCommand("statsserver " + serverList[i].id); } ImGui::EndTable(); } ImGui::End(); }
+void DrawServerManagement() {
+    if (!show_server_management) return; ImGui::SetNextWindowPos(ImVec2(470, 240), ImGuiCond_FirstUseEver); ImGui::SetNextWindowSize(ImVec2(880, 150), ImGuiCond_FirstUseEver);
+    ImGui::Begin(">> SUNUCU (WORKSPACE) YONETIMI <<", &show_server_management);
+    if (ImGui::Button("Yenile (Refresh)")) FetchServersAsync();
+    if (isFetchingServers) { ImGui::SameLine(); ImGui::TextColored(ImVec4(1, 1, 0, 1), " Guncelleniyor..."); }
+    ImGui::Spacing();
+    if (ImGui::BeginTable("ServersTable", 5, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY)) {
+        ImGui::TableSetupColumn("ID"); ImGui::TableSetupColumn("Sunucu Adi"); ImGui::TableSetupColumn("Kurucu ID"); ImGui::TableSetupColumn("Uye"); ImGui::TableSetupColumn("Islem"); ImGui::TableHeadersRow();
+        std::lock_guard<std::mutex> lock(serverListMutex);
+        for (int i = 0; i < serverList.size(); i++) {
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0); DrawCopyableText(serverList[i].id, "Sunucu ID Kopyala", i * 10 + 2000);
+            ImGui::TableSetColumnIndex(1); DrawCopyableText(serverList[i].name, "Sunucu Adi Kopyala", i * 10 + 2001);
+            ImGui::TableSetColumnIndex(2); DrawCopyableText(serverList[i].owner_id, "Kurucu ID Kopyala", i * 10 + 2002);
+            ImGui::TableSetColumnIndex(3); ImGui::Text("%d", serverList[i].member_count);
+            ImGui::TableSetColumnIndex(4); std::string btn = "Gozetim##S" + std::to_string(i); if (ImGui::Button(btn.c_str())) ProcessConsoleCommand("statsserver " + serverList[i].id);
+        }
+        ImGui::EndTable();
+    } ImGui::End();
+}
 
 void DrawSystemConsoleWindow() {
     if (!show_console_window) return; ImGui::SetNextWindowPos(ImVec2(470, 400), ImGuiCond_FirstUseEver); ImGui::SetNextWindowSize(ImVec2(880, 200), ImGuiCond_FirstUseEver);
@@ -731,11 +818,79 @@ void DrawAuditLogsWindow() {
     ImGui::End();
 }
 
-void DrawBanListModal() { if (!show_ban_list) return; ImGui::SetNextWindowPos(ImVec2(1366 / 2 - 350, 768 / 2 - 200), ImGuiCond_FirstUseEver); ImGui::SetNextWindowSize(ImVec2(700, 400), ImGuiCond_FirstUseEver); if (ImGui::Begin("Yasakli Kullanicilar (Ban Listesi)", &show_ban_list)) { if (ImGui::Button("Listeyi Yenile")) FetchBanListAsync(); ImGui::Spacing(); if (ImGui::BeginTable("BanTable", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY)) { ImGui::TableSetupColumn("Kullanici ID"); ImGui::TableSetupColumn("Sebep"); ImGui::TableSetupColumn("Tarih"); ImGui::TableSetupColumn("Islem"); ImGui::TableHeadersRow(); std::lock_guard<std::mutex> lock(banListMutex); for (int i = 0; i < banList.size(); i++) { ImGui::TableNextRow(); ImGui::TableSetColumnIndex(0); DrawCopyableText(banList[i].user_id, "Banli ID Kopyala", i * 10 + 5000); ImGui::TableSetColumnIndex(1); ImGui::Text("%s", banList[i].reason.c_str()); ImGui::TableSetColumnIndex(2); ImGui::Text("%s", banList[i].date.c_str()); ImGui::TableSetColumnIndex(3); std::string btn = "Kaldir##B" + std::to_string(i); if (ImGui::Button(btn.c_str())) ProcessConsoleCommand("unban " + banList[i].user_id); } ImGui::EndTable(); } } ImGui::End(); }
+void DrawBanListModal() {
+    if (!show_ban_list) return; ImGui::SetNextWindowPos(ImVec2(1366 / 2 - 350, 768 / 2 - 200), ImGuiCond_FirstUseEver); ImGui::SetNextWindowSize(ImVec2(700, 400), ImGuiCond_FirstUseEver);
+    if (ImGui::Begin("Yasakli Kullanicilar (Ban Listesi)", &show_ban_list)) {
+        if (ImGui::Button("Listeyi Yenile")) FetchBanListAsync(); ImGui::Spacing();
+        if (ImGui::BeginTable("BanTable", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY)) {
+            ImGui::TableSetupColumn("Kullanici ID"); ImGui::TableSetupColumn("Sebep"); ImGui::TableSetupColumn("Tarih"); ImGui::TableSetupColumn("Islem"); ImGui::TableHeadersRow();
+            std::lock_guard<std::mutex> lock(banListMutex);
+            for (int i = 0; i < banList.size(); i++) {
+                ImGui::TableNextRow(); ImGui::TableSetColumnIndex(0); DrawCopyableText(banList[i].user_id, "Banli ID Kopyala", i * 10 + 5000); ImGui::TableSetColumnIndex(1); ImGui::Text("%s", banList[i].reason.c_str()); ImGui::TableSetColumnIndex(2); ImGui::Text("%s", banList[i].date.c_str()); ImGui::TableSetColumnIndex(3); std::string btn = "Kaldir##B" + std::to_string(i); if (ImGui::Button(btn.c_str())) ProcessConsoleCommand("unban " + banList[i].user_id);
+            } ImGui::EndTable();
+        }
+    } ImGui::End();
+}
 
-void DrawUserStatsModal() { if (!show_user_stats) return; ImGui::SetNextWindowPos(ImVec2(1366 / 2 - 400, 768 / 2 - 250), ImGuiCond_FirstUseEver); ImGui::SetNextWindowSize(ImVec2(800, 500), ImGuiCond_FirstUseEver); std::string title = "Kullanici Istihbarati: " + active_stats_id; if (ImGui::Begin(title.c_str(), &show_user_stats)) { if (isFetchingStats) ImGui::TextColored(ImVec4(1, 0.8f, 0, 1), "Veriler cekiliyor..."); else { std::lock_guard<std::mutex> lock(statsMutex); if (ImGui::BeginTabBar("UTabs")) { if (ImGui::BeginTabItem("Sunucular")) { if (activeStatsServers.empty()) ImGui::Text("Sunucu yok."); else { if (ImGui::BeginTable("UST", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) { ImGui::TableSetupColumn("ID"); ImGui::TableSetupColumn("Ad"); ImGui::TableSetupColumn("Durum"); ImGui::TableHeadersRow(); for (const auto& s : activeStatsServers) { ImGui::TableNextRow(); ImGui::TableSetColumnIndex(0); ImGui::Text("%s", s.id.c_str()); ImGui::TableSetColumnIndex(1); ImGui::Text("%s", s.name.c_str()); ImGui::TableSetColumnIndex(2); if (s.owner_id == active_stats_id) ImGui::TextColored(ImVec4(0.2f, 1, 0.2f, 1), "Kurucu"); else ImGui::Text("Uye"); } ImGui::EndTable(); } } ImGui::EndTabItem(); } if (ImGui::BeginTabItem("DM/Arkadaslar")) { if (activeStatsFriends.empty()) ImGui::Text("Arkadas yok."); else { if (ImGui::BeginTable("UFT", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) { ImGui::TableSetupColumn("ID"); ImGui::TableSetupColumn("Ad"); ImGui::TableSetupColumn("E-Posta"); ImGui::TableHeadersRow(); for (const auto& f : activeStatsFriends) { ImGui::TableNextRow(); ImGui::TableSetColumnIndex(0); ImGui::Text("%s", f.id.c_str()); ImGui::TableSetColumnIndex(1); ImGui::Text("%s", f.name.c_str()); ImGui::TableSetColumnIndex(2); ImGui::Text("%s", f.email.c_str()); } ImGui::EndTable(); } } ImGui::EndTabItem(); } ImGui::EndTabBar(); } } } ImGui::End(); }
+void DrawUserStatsModal() {
+    if (!show_user_stats) return; ImGui::SetNextWindowPos(ImVec2(1366 / 2 - 400, 768 / 2 - 250), ImGuiCond_FirstUseEver); ImGui::SetNextWindowSize(ImVec2(800, 500), ImGuiCond_FirstUseEver); std::string title = "Kullanici Istihbarati: " + active_stats_id;
+    if (ImGui::Begin(title.c_str(), &show_user_stats)) {
+        if (isFetchingStats) ImGui::TextColored(ImVec4(1, 0.8f, 0, 1), "Veriler cekiliyor...");
+        else {
+            std::lock_guard<std::mutex> lock(statsMutex);
+            if (ImGui::BeginTabBar("UTabs")) {
+                if (ImGui::BeginTabItem("Sunucular")) {
+                    if (activeStatsServers.empty()) ImGui::Text("Sunucu yok.");
+                    else {
+                        if (ImGui::BeginTable("UST", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+                            ImGui::TableSetupColumn("ID"); ImGui::TableSetupColumn("Ad"); ImGui::TableSetupColumn("Durum"); ImGui::TableHeadersRow();
+                            for (const auto& s : activeStatsServers) { ImGui::TableNextRow(); ImGui::TableSetColumnIndex(0); ImGui::Text("%s", s.id.c_str()); ImGui::TableSetColumnIndex(1); ImGui::Text("%s", s.name.c_str()); ImGui::TableSetColumnIndex(2); if (s.owner_id == active_stats_id) ImGui::TextColored(ImVec4(0.2f, 1, 0.2f, 1), "Kurucu"); else ImGui::Text("Uye"); } ImGui::EndTable();
+                        }
+                    } ImGui::EndTabItem();
+                }
+                if (ImGui::BeginTabItem("DM/Arkadaslar")) {
+                    if (activeStatsFriends.empty()) ImGui::Text("Arkadas yok.");
+                    else {
+                        if (ImGui::BeginTable("UFT", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+                            ImGui::TableSetupColumn("ID"); ImGui::TableSetupColumn("Ad"); ImGui::TableSetupColumn("E-Posta"); ImGui::TableHeadersRow();
+                            for (const auto& f : activeStatsFriends) { ImGui::TableNextRow(); ImGui::TableSetColumnIndex(0); ImGui::Text("%s", f.id.c_str()); ImGui::TableSetColumnIndex(1); ImGui::Text("%s", f.name.c_str()); ImGui::TableSetColumnIndex(2); ImGui::Text("%s", f.email.c_str()); } ImGui::EndTable();
+                        }
+                    } ImGui::EndTabItem();
+                } ImGui::EndTabBar();
+            }
+        }
+    } ImGui::End();
+}
 
-void DrawServerStatsModal() { if (!show_server_stats) return; ImGui::SetNextWindowPos(ImVec2(1366 / 2 - 400, 768 / 2 - 300), ImGuiCond_FirstUseEver); ImGui::SetNextWindowSize(ImVec2(800, 600), ImGuiCond_FirstUseEver); std::string title = "Sunucu Gozetimi: " + active_stats_id; if (ImGui::Begin(title.c_str(), &show_server_stats)) { if (isFetchingServerStats) ImGui::TextColored(ImVec4(1, 0.8f, 0, 1), "Cekiliyor..."); else { ImGui::Columns(2, "SCols"); ImGui::SetColumnWidth(0, 300); ImGui::TextColored(ImVec4(0.4f, 0.8f, 1, 1), "Uyeler"); ImGui::BeginChild("SMR", ImVec2(0, 0), true); { std::lock_guard<std::mutex> lock(statsMutex); if (activeServerMembersList.empty()) ImGui::Text("Uye yok."); else { if (ImGui::BeginTable("SMT", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) { ImGui::TableSetupColumn("Ad"); ImGui::TableSetupColumn("Durum"); ImGui::TableHeadersRow(); for (const auto& m : activeServerMembersList) { ImGui::TableNextRow(); ImGui::TableSetColumnIndex(0); ImGui::Text("%s", m.name.c_str()); ImGui::TableSetColumnIndex(1); if (m.status == "Online") ImGui::TextColored(ImVec4(0.2f, 1, 0.2f, 1), "Online"); else ImGui::Text("Offline"); } ImGui::EndTable(); } } } ImGui::EndChild(); ImGui::NextColumn(); ImGui::TextColored(ImVec4(0.4f, 0.8f, 1, 1), "Loglar"); ImGui::BeginChild("SLR", ImVec2(0, 0), true); { std::lock_guard<std::mutex> lock(statsMutex); if (activeServerLogsList.empty()) ImGui::Text("Kayıt yok."); else { if (ImGui::BeginTable("SLT", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) { ImGui::TableSetupColumn("Tarih", ImGuiTableColumnFlags_WidthFixed, 130); ImGui::TableSetupColumn("Aksiyon", ImGuiTableColumnFlags_WidthFixed, 100); ImGui::TableSetupColumn("Detay"); ImGui::TableHeadersRow(); for (const auto& log : activeServerLogsList) { ImGui::TableNextRow(); ImGui::TableSetColumnIndex(0); ImGui::Text("%s", log.time.c_str()); ImGui::TableSetColumnIndex(1); ImGui::TextColored(ImVec4(1, 0.8f, 0, 1), "%s", log.action.c_str()); ImGui::TableSetColumnIndex(2); ImGui::TextWrapped("%s", log.details.c_str()); } ImGui::EndTable(); } } } ImGui::EndChild(); ImGui::Columns(1); } } ImGui::End(); }
+void DrawServerStatsModal() {
+    if (!show_server_stats) return; ImGui::SetNextWindowPos(ImVec2(1366 / 2 - 400, 768 / 2 - 300), ImGuiCond_FirstUseEver); ImGui::SetNextWindowSize(ImVec2(800, 600), ImGuiCond_FirstUseEver); std::string title = "Sunucu Gozetimi: " + active_stats_id;
+    if (ImGui::Begin(title.c_str(), &show_server_stats)) {
+        if (isFetchingServerStats) ImGui::TextColored(ImVec4(1, 0.8f, 0, 1), "Cekiliyor...");
+        else {
+            ImGui::Columns(2, "SCols"); ImGui::SetColumnWidth(0, 300); ImGui::TextColored(ImVec4(0.4f, 0.8f, 1, 1), "Uyeler"); ImGui::BeginChild("SMR", ImVec2(0, 0), true);
+            {
+                std::lock_guard<std::mutex> lock(statsMutex);
+                if (activeServerMembersList.empty()) ImGui::Text("Uye yok.");
+                else {
+                    if (ImGui::BeginTable("SMT", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+                        ImGui::TableSetupColumn("Ad"); ImGui::TableSetupColumn("Durum"); ImGui::TableHeadersRow();
+                        for (const auto& m : activeServerMembersList) { ImGui::TableNextRow(); ImGui::TableSetColumnIndex(0); ImGui::Text("%s", m.name.c_str()); ImGui::TableSetColumnIndex(1); if (m.status == "Online") ImGui::TextColored(ImVec4(0.2f, 1, 0.2f, 1), "Online"); else ImGui::Text("Offline"); } ImGui::EndTable();
+                    }
+                }
+            } ImGui::EndChild(); ImGui::NextColumn(); ImGui::TextColored(ImVec4(0.4f, 0.8f, 1, 1), "Loglar"); ImGui::BeginChild("SLR", ImVec2(0, 0), true);
+            {
+                std::lock_guard<std::mutex> lock(statsMutex);
+                if (activeServerLogsList.empty()) ImGui::Text("Kayıt yok.");
+                else {
+                    if (ImGui::BeginTable("SLT", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+                        ImGui::TableSetupColumn("Tarih", ImGuiTableColumnFlags_WidthFixed, 130); ImGui::TableSetupColumn("Aksiyon", ImGuiTableColumnFlags_WidthFixed, 100); ImGui::TableSetupColumn("Detay"); ImGui::TableHeadersRow();
+                        for (const auto& log : activeServerLogsList) { ImGui::TableNextRow(); ImGui::TableSetColumnIndex(0); ImGui::Text("%s", log.time.c_str()); ImGui::TableSetColumnIndex(1); ImGui::TextColored(ImVec4(1, 0.8f, 0, 1), "%s", log.action.c_str()); ImGui::TableSetColumnIndex(2); ImGui::TextWrapped("%s", log.details.c_str()); } ImGui::EndTable();
+                    }
+                }
+            } ImGui::EndChild(); ImGui::Columns(1);
+        }
+    } ImGui::End();
+}
 
 // ==============================================================
 // ANA UYGULAMA DÖNGÜSÜ

@@ -47,7 +47,25 @@ bool DatabaseManager::executeQuery(const std::string& sql) {
 bool DatabaseManager::initTables() {
     std::string sql =
         "CREATE TABLE IF NOT EXISTS SavedMessages (user_id TEXT, message_id TEXT, PRIMARY KEY(user_id, message_id));"
-        "CREATE TABLE IF NOT EXISTS Users (ID TEXT PRIMARY KEY, Name TEXT NOT NULL, Email TEXT UNIQUE NOT NULL, PasswordHash TEXT, GoogleID TEXT UNIQUE, IsSystemAdmin INTEGER DEFAULT 0, Status TEXT DEFAULT 'Offline', AvatarURL TEXT, SubscriptionLevel INTEGER DEFAULT 0, SubscriptionExpiresAt DATETIME, LastSeen DATETIME DEFAULT CURRENT_TIMESTAMP, CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP);"
+
+        // DÜZELTME: Users tablosu tamamen güncellendi. (username ve phone_number direkt eklendi)
+        "CREATE TABLE IF NOT EXISTS Users ("
+        "ID TEXT PRIMARY KEY, "
+        "Name TEXT NOT NULL, "
+        "Email TEXT UNIQUE NOT NULL, "
+        "PasswordHash TEXT, "
+        "Username TEXT DEFAULT '', "
+        "PhoneNumber TEXT DEFAULT '', "
+        "GoogleID TEXT UNIQUE, "
+        "IsSystemAdmin INTEGER DEFAULT 0, "
+        "Status TEXT DEFAULT 'Offline', "
+        "AvatarURL TEXT, "
+        "SubscriptionLevel INTEGER DEFAULT 0, "
+        "SubscriptionExpiresAt DATETIME, "
+        "TwoFactorSecret TEXT, "
+        "LastSeen DATETIME DEFAULT CURRENT_TIMESTAMP, "
+        "CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP);"
+
         "CREATE TABLE IF NOT EXISTS Servers (ID TEXT PRIMARY KEY, OwnerID TEXT, Name TEXT NOT NULL, InviteCode TEXT UNIQUE, IconURL TEXT, Settings TEXT DEFAULT '{}', CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(OwnerID) REFERENCES Users(ID) ON DELETE CASCADE);"
         "CREATE TABLE IF NOT EXISTS Roles (ID TEXT PRIMARY KEY, ServerID TEXT, RoleName TEXT NOT NULL, Color TEXT DEFAULT '#FFFFFF', Hierarchy INTEGER DEFAULT 0, Permissions INTEGER DEFAULT 0, FOREIGN KEY(ServerID) REFERENCES Servers(ID) ON DELETE CASCADE);"
         "CREATE TABLE IF NOT EXISTS ServerMembers (ServerID TEXT, UserID TEXT, Nickname TEXT, JoinedAt DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (ServerID, UserID), FOREIGN KEY(ServerID) REFERENCES Servers(ID) ON DELETE CASCADE, FOREIGN KEY(UserID) REFERENCES Users(ID) ON DELETE CASCADE);"
@@ -69,8 +87,21 @@ bool DatabaseManager::initTables() {
         "CREATE TABLE IF NOT EXISTS BlockedUsers (UserID TEXT, BlockedID TEXT, CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(UserID, BlockedID));"
         "CREATE TABLE IF NOT EXISTS ServerMemberRoles (ServerID TEXT, UserID TEXT, RoleID TEXT, PRIMARY KEY(ServerID, UserID, RoleID));"
         "CREATE TABLE IF NOT EXISTS Notifications (ID INTEGER PRIMARY KEY AUTOINCREMENT, UserID TEXT, Message TEXT, Type TEXT, IsRead INTEGER DEFAULT 0, CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(UserID) REFERENCES Users(ID) ON DELETE CASCADE);";
-    executeQuery("ALTER TABLE users ADD COLUMN username TEXT DEFAULT '';");
-    executeQuery("ALTER TABLE users ADD COLUMN phone_number TEXT DEFAULT '';");
+
+    // ALTER TABLE komutları kaldırıldı çünkü artık tablo baştan eksiksiz kuruluyor.
+    return executeQuery(sql);
+}
+
+// DÜZELTME: createUser fonksiyonu güncellendi (Büyük/Küçük harf duyarlılığı çözüldü)
+bool DatabaseManager::createUser(std::string name, std::string email, std::string password, bool is_system_admin, std::string username, std::string phone_number) {
+    std::string id = Security::generateId(16);
+    std::string hash = Security::hashPassword(password);
+    int adminFlag = is_system_admin ? 1 : 0;
+
+    // Sütun isimleri CREATE TABLE'daki gibi (ID, Name, Email, PasswordHash...) büyük harfle başlatıldı.
+    std::string sql = "INSERT INTO Users (ID, Name, Email, PasswordHash, IsSystemAdmin, Username, PhoneNumber) VALUES ('" +
+        id + "', '" + name + "', '" + email + "', '" + hash + "', " + std::to_string(adminFlag) + ", '" + username + "', '" + phone_number + "');";
+
     return executeQuery(sql);
 }
 
@@ -93,17 +124,6 @@ std::optional<User> DatabaseManager::getUserByGoogleId(const std::string& google
     } sqlite3_finalize(stmt); return user;
 }
 
-bool DatabaseManager::createUser(std::string name, std::string email, std::string password, bool is_system_admin, std::string username, std::string phone_number) {
-    std::string id = Security::generateId(16);
-    std::string hash = Security::hashPassword(password);
-    int adminFlag = is_system_admin ? 1 : 0;
-
-    // SQL tablosunda username ve phone_number kolonları olduğunu (önceki adımda ALTER TABLE ile eklediğimizi) varsayıyoruz.
-    std::string sql = "INSERT INTO users (id, name, email, password_hash, is_system_admin, username, phone_number) VALUES ('" +
-        id + "', '" + name + "', '" + email + "', '" + hash + "', " + std::to_string(adminFlag) + ", '" + username + "', '" + phone_number + "');";
-
-    return executeQuery(sql);
-}
 
 bool DatabaseManager::clearChatForUser(std::string userId, std::string channelId) {
     // 1. Kullanıcıların sohbeti sildiği tarihleri tutan "hayalet" bir tablo oluştur

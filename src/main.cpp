@@ -30,7 +30,6 @@ void backgroundTasks(DatabaseManager* db) {
     while (true) {
         try {
             db->markInactiveUsersOffline(300);
-            db->processKanbanNotifications();
         }
         catch (...) {} // Arka plan çökmesini engeller
         std::this_thread::sleep_for(std::chrono::minutes(1));

@@ -254,35 +254,44 @@ void UserRoutes::setup(crow::App<crow::CORSHandler>& app, DatabaseManager& db) {
         return crow::response(200, res);
             });
 
+    // ==========================================================
+        // BİLDİRİMLER (NOTIFICATIONS)
+        // ==========================================================
     CROW_ROUTE(app, "/api/notifications").methods("GET"_method)
         ([&db](const crow::request& req) {
-        try {
-            if (!Security::checkAuth(req, db)) return crow::response(401);
+        if (!Security::checkAuth(req, db, false)) return crow::response(401);
+        std::string myId = Security::getUserIdFromHeader(req);
 
-            std::string userId = Security::getUserIdFromHeader(req);
+        auto notifs = db.getUserNotifications(myId);
+        crow::json::wvalue res = crow::json::wvalue::list();
 
-            // notifs zaten bir JSON (crow::json::wvalue) listesidir.
-            auto notifs = db.getUserNotifications(userId);
-
-            crow::json::wvalue res = crow::json::wvalue::list(); // Boş bir JSON listesi başlat
-
-            for (size_t i = 0; i < notifs.size(); i++) {
-                // Objeleri parçalamadan doğrudan diziye taşıyoruz
-                res[i] = std::move(notifs[i]);
-            }
-
-            return crow::response(200, res);
+        for (size_t i = 0; i < notifs.size(); ++i) {
+            res[i] = std::move(notifs[i]);
         }
-        catch (...) {
-            return crow::response(500, "Bildirimler alinirken hata olustu.");
-        }
+
+        return crow::response(200, res);
             });
+    // TÜM BİLDİRİMLERİ OKUNDU İŞARETLE
+    CROW_ROUTE(app, "/api/notifications/read-all").methods("PUT"_method)
+        ([&db](const crow::request& req) {
+        if (!Security::checkAuth(req, db, false)) return crow::response(401);
+        std::string myId = Security::getUserIdFromHeader(req);
 
+        // Veritabanında bu kullanıcıya ait tüm bildirimleri 'Okundu' yap
+        std::string sql = "UPDATE Notifications SET IsRead = 1 WHERE UserID = '" + myId + "';";
+        if (db.executeQuery(sql)) {
+            return crow::response(200, "Tum bildirimler okundu olarak isaretlendi.");
+        }
+        return crow::response(500, "Sunucu hatasi.");
+            });
     CROW_ROUTE(app, "/api/notifications/<int>/read").methods("PUT"_method)
         ([&db](const crow::request& req, int notifId) {
-        if (!Security::checkAuth(req, db)) return crow::response(401);
-        if (db.markNotificationAsRead(notifId)) return crow::response(200);
-        return crow::response(500);
+        if (!Security::checkAuth(req, db, false)) return crow::response(401);
+
+        if (db.markNotificationAsRead(notifId)) {
+            return crow::response(200, "Bildirim okundu isaretlendi.");
+        }
+        return crow::response(500, "Sunucu hatasi.");
             });
 
     // ==========================================================
