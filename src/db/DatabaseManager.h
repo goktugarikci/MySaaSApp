@@ -3,7 +3,7 @@
 #include <vector>
 #include <sqlite3.h>
 #include <optional>
-#include <mutex> // EKLENDİ: std::mutex kullanımı için zorunlu
+#include <mutex> // std::recursive_mutex için 
 
 #include <crow/middlewares/cors.h>
 
@@ -20,9 +20,9 @@ public:
     sqlite3* db; //Main DB
     sqlite3* logDb;// Log Dosyası 
     std::string db_path; //Main DB
-    std::mutex logMutex;// Log Dosyası 
-    std::mutex dbMutex;
-    std::mutex logDbMutex;
+    std::recursive_mutex logMutex;// Log Dosyası 
+    std::recursive_mutex dbMutex;
+    std::recursive_mutex logDbMutex;
 
     bool executeQuery(const std::string& sql); //Main DB
     bool executeLogQuery(const std::string& query); // Log Dosyası Köprüsü
